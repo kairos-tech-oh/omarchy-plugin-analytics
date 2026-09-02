@@ -41,7 +41,22 @@ Panel {
 
   // --------------------------------------------------------------- settings
 
-  readonly property string author: Sanitise.author(setting("author", ""))
+  // The bar setting wins when set; otherwise the author the helper already knows
+  // (set from the app window or a previous run) keeps the widget working.
+  readonly property string settingsAuthor: Sanitise.author(setting("author", ""))
+  readonly property string author: settingsAuthor !== "" ? settingsAuthor : storedAuthor()
+
+  function storedAuthor() {
+    var d = summaryData()
+    return d ? Sanitise.author(d.author) : ""
+  }
+
+  function openApp() {
+    if (root.bar && root.bar.shell && typeof root.bar.shell.summon === "function") {
+      root.close()
+      root.bar.shell.summon(root.moduleName, "{}")
+    }
+  }
   readonly property string barMetric: String(setting("barMetric", "views"))
   readonly property string barWindow: String(setting("barWindow", "24h"))
   readonly property string defaultWindow: String(setting("defaultWindow", "7d"))
@@ -435,7 +450,7 @@ Panel {
             spacing: Style.space(8)
 
             Column {
-              width: parent.width - refreshButton.width - parent.spacing
+              width: parent.width - refreshButton.width - appButton.width - parent.spacing * 2
               spacing: Style.space(2)
 
               Text {
@@ -466,6 +481,16 @@ Panel {
                 font.pixelSize: Style.font.bodySmall
                 elide: Text.ElideRight
               }
+            }
+
+            Button {
+              id: appButton
+              text: "Open app"
+              foreground: root.ink
+              accent: root.accent
+              anchors.verticalCenter: parent.verticalCenter
+              tooltipText: "Full window with repository links and READMEs (SUPER + ALT + A)"
+              onClicked: root.openApp()
             }
 
             Button {
@@ -610,7 +635,7 @@ Panel {
               spacing: Style.space(8)
 
               PanelSectionHeader {
-                text: root.focusId !== "" ? "TREND · " + root.focusName().toUpperCase() : "TREND"
+                text: Sanitise.barSafe(root.focusId !== "" ? "TREND · " + root.focusName().toUpperCase() : "TREND")
                 foreground: root.ink
                 fontFamily: root.fontFamily
                 width: parent.width - metricGroup.width - clearFocus.width - parent.spacing * 2

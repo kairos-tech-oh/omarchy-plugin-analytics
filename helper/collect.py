@@ -24,7 +24,10 @@ REPO_URL = "https://github.com/kairos-tech-oh/omarchy-plugin-analytics"
 
 STATS_URL = "https://api.omarchyplugins.com/v1/stats"
 CATALOG_URL = "https://plugins.omarchy.org/catalog.json"
-ALLOWED_HOSTS = {"api.omarchyplugins.com", "plugins.omarchy.org"}
+ALLOWED_HOSTS = {"api.omarchyplugins.com", "plugins.omarchy.org", "raw.githubusercontent.com"}
+README_CAP = 512 * 1024
+README_TTL = 6 * 3600
+README_NAMES = ("README.md", "readme.md", "README.markdown", "Readme.md", "README")
 
 STATS_CAP = 4 * 1024 * 1024
 CATALOG_CAP = 24 * 1024 * 1024
@@ -1084,6 +1087,56 @@ def cmd_collect(args, d, p, force_catalog=False):
     replace_file(p["summary"], json.dumps(build_summary(p, meta, resolved, now), separators=(",", ":")))
 
 
+def repo_parts(repo):
+    m = re.match(r"^https://github\.com/([A-Za-z0-9_.-]{1,100})/([A-Za-z0-9_.-]{1,100})/?$", str(repo or ""))
+    if not m or m.group(1).startswith(".") or m.group(2).startswith("."):
+        return None
+    return m.group(1), m.group(2)
+
+
+def cmd_readme(args, d, p):
+    # Fetches a plugin's root README from raw.githubusercontent.com, cached 6h.
+    pid = args.plugin
+    if not valid_id(pid):
+        emit({"ok": False, "reason": "bad-id"})
+        return
+    resolved = read_json(p["resolved"], 1024 * 1024) or {}
+    entry = next((x for x in (resolved.get("plugins") or []) if x.get("id") == pid), None)
+    parts = repo_parts(entry.get("repo")) if entry else None
+    if parts is None:
+        emit({"ok": False, "reason": "no-repo"})
+        return
+    cache_dir = os.path.join(d, "readme")
+    os.makedirs(cache_dir, mode=0o700, exist_ok=True)
+    cache_path = os.path.join(cache_dir, pid + ".json")
+    now = int(time.time())
+    cached = read_json(cache_path, README_CAP + 4096)
+    if cached and not args.refresh and isinstance(cached.get("t"), int) and now - cached["t"] < README_TTL:
+        cached["cached"] = True
+        emit(cached)
+        return
+    budget = args.budget
+    for name in README_NAMES:
+        url = "https://raw.githubusercontent.com/%s/%s/HEAD/%s" % (parts[0], parts[1], name)
+        status, body, _ = fetch(url, README_CAP, min(budget, 30))
+        if status == 200:
+            text = body.decode("utf-8", "replace")
+            text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
+            out = {"ok": True, "t": now, "url": url, "text": text, "cached": False,
+                   "repo": "https://github.com/%s/%s" % parts}
+            replace_file(cache_path, json.dumps(out, separators=(",", ":")))
+            emit(out)
+            return
+    if cached and cached.get("ok"):
+        cached["cached"] = True
+        cached["stale"] = True
+        emit(cached)
+        return
+    out = {"ok": False, "reason": "not-found", "t": now, "repo": "https://github.com/%s/%s" % parts}
+    replace_file(cache_path, json.dumps(out, separators=(",", ":")))
+    emit(out)
+
+
 def cmd_read(args, d, p):
     name = args.name
     if name not in ("summary", "resolved", "meta"):
@@ -1119,6 +1172,9 @@ def main():
     rd.add_argument("name")
     sub.add_parser("rebuild")
     sub.add_parser("ensure-timer")
+    rm = sub.add_parser("readme")
+    rm.add_argument("--plugin", required=True)
+    rm.add_argument("--refresh", action="store_true")
     args = ap.parse_args()
     args.budget = max(5, min(180, args.budget))
 
@@ -1132,6 +1188,9 @@ def main():
         return
     if args.cmd == "read":
         cmd_read(args, d, p)
+        return
+    if args.cmd == "readme":
+        cmd_readme(args, d, p)
         return
     with Lock(d):
         if args.cmd == "collect":

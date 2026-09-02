@@ -14,7 +14,23 @@ backed by real data.
 *Preview rendered from a demo dataset (`tools/demo-data.py`) so the trend is
 visible. Your own history starts the moment the plugin is installed.*
 
+![App window with a plugin's README](docs/app.png)
+
+*The app window, tiled beside another window, showing one plugin's detail view
+and its README.*
+
 ## What you get
+
+Two surfaces over the same data:
+
+- **Bar widget + popout** for the glance: click the bar label for a compact
+  panel with the window picker, stat tiles, trend chart and per-plugin rows.
+- **App window** for sitting down with it: a real toplevel window Hyprland tiles
+  like any other, painted translucent over your wallpaper in the current theme.
+  It adds a plugin sidebar, a detail view per plugin with **Repository** and
+  **Marketplace** links, a copyable install command, rank and percentile, and
+  the plugin's **README rendered inline** (fetched from the repository, cached
+  six hours, shown as plain text — never as markup).
 
 - **Bar label** — the delta for one metric over 24h or 7d (`▲ 128`), with a
   per-plugin tooltip. Middle-click refreshes.
@@ -39,7 +55,7 @@ omarchy plugin add https://github.com/kairos-tech-oh/omarchy-plugin-analytics --
 ```
 
 Then add **Plugin Analytics** to your bar from the shell's bar settings, open it,
-and enter your author. The plugin accepts either spelling the catalog uses:
+and enter your author — or open the app window and enter it there. The plugin accepts either spelling the catalog uses:
 
 - the `author` display name on your listings (e.g. `kairos`), or
 - the GitHub owner from your repository URLs (e.g. `kairos-tech-oh`).
@@ -81,6 +97,30 @@ systemctl --user enable --now kairos-plugin-analytics.timer
 loginctl enable-linger $USER
 ```
 
+### The app window and its keybinding
+
+The app opens with:
+
+```
+omarchy-shell shell toggle kairos.plugin-analytics
+omarchy-shell shell toggle kairos.plugin-analytics '{"plugin":"kairos.night-sky"}'   # straight to one plugin
+```
+
+Bind it to a key in `~/.config/hypr/bindings.lua` (Hyprland reloads on save):
+
+```lua
+o.bind("SUPER + ALT + A", "Plugin analytics", "omarchy-shell shell toggle kairos.plugin-analytics")
+```
+
+Check the key is free first with `omarchy menu keybindings --print`, and add an
+`hl.unbind("SUPER + ALT + A")` line above it if something already claims it.
+The bar popout also has an **Open app** button.
+
+Inside the window: `Esc` closes, `Ctrl+R` takes a snapshot now, `↑`/`↓` (or
+`j`/`k`) move through the plugin list. It sits on the wallpaper at 90 % opacity
+— the same ground Theme Forge measured Omakade at — so it reads as part of the
+desktop rather than a dialog on top of it.
+
 ## Remove
 
 ```
@@ -116,11 +156,18 @@ that summary through a bounded read; the 5 MB catalog never enters the shell.
 |---|---|---|
 | `https://api.omarchyplugins.com/v1/stats` | hourly | 137 KB; views, copies, hearts for every plugin. Rank is computed from this. |
 | `https://plugins.omarchy.org/catalog.json` | hourly, conditional | 5.3 MB, but served with an `ETag`; unchanged catalogs cost one `304` round trip and no body. Provides author resolution and GitHub stars. |
+| `https://raw.githubusercontent.com/<owner>/<repo>/HEAD/README.md` | on demand, cached 6 h | Only for plugins in your own resolved set, only from the app window's detail view. Capped at 512 KB. |
 
 Requests are HTTPS-only to a fixed allowlist, pinned to a freshly validated
 address, refuse redirects, carry a whole-request deadline and a byte cap, and
 identify themselves with a descriptive User-Agent. A blocked or failed fetch keeps
 the previous state rather than inventing a new one.
+
+READMEs are rendered through a small plain-text Markdown reader: headings, lists,
+code, quotes and tables keep their shape, links show their `https` target inline,
+images become `⟨image: alt⟩`, and HTML is stripped. Nothing from a README ever
+reaches a rich-text element. The only URLs the app will open externally are
+`https://github.com/…` and `https://plugins.omarchy.org/…`.
 
 ### The maths, and why it is not the obvious version
 
@@ -168,8 +215,9 @@ the panel.
 ## IPC
 
 ```
-omarchy-shell shell toggle kairos.plugin-analytics
+omarchy-shell shell toggle kairos.plugin-analytics        # the app window
 omarchy-shell shell summon kairos.plugin-analytics
+qs -c omarchy ipc call kairos.plugin-analytics toggle     # the bar popout
 qs -c omarchy ipc call kairos.plugin-analytics refresh
 ```
 
@@ -185,6 +233,7 @@ qs -c omarchy ipc call kairos.plugin-analytics refresh
 | `resolved.json` | author → plugin mapping and which field matched | small |
 | `summary.json` | everything the panel shows | ~35 KB for 5 plugins |
 | `meta.json` | ETag, last run, rollup seam | tiny |
+| `readme/<id>.json` | cached README text per plugin | ≤ 512 KB each |
 
 Up to 50 plugins are tracked per author. Nothing leaves your machine except the
 two API requests above; no credentials are involved anywhere.

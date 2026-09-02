@@ -124,3 +124,26 @@ function ordinal(n) {
   var s = ["th", "st", "nd", "rd"], r = v % 100
   return v + (s[(r - 20) % 10] || s[r] || s[0])
 }
+
+// Deep link to a plugin's page on the marketplace site.
+function marketplaceUrl(id) {
+  return "https://plugins.omarchy.org/?plugin=" + encodeURIComponent(String(id || ""))
+}
+
+function installCommand(repo) {
+  return "omarchy plugin add " + String(repo || "") + " --enable"
+}
+
+// Only two destinations are ever opened externally, and only over https.
+function safeExternalUrl(url) {
+  var text = String(url || "")
+  if (/[\x00-\x20<>"'\\]/.test(text)) return ""
+  return /^https:\/\/(github\.com|plugins\.omarchy\.org)\/[^\s]*$/.test(text) ? text : ""
+}
+
+function dateLong(ts) {
+  if (!ts) return ""
+  var d = new Date(num(ts) * 1000)
+  var months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+  return d.getDate() + " " + months[d.getMonth()] + " " + d.getFullYear()
+}

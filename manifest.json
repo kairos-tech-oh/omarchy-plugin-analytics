@@ -5,10 +5,14 @@
   "version": "1.0.0",
   "author": "kairos",
   "license": "MIT",
-  "description": "Developer analytics for your Omarchy marketplace plugins: hourly tracking of views, copies, hearts, stars and rank, with per-plugin breakdowns over 24h to all-time windows.",
-  "kinds": ["bar-widget"],
+  "description": "Developer analytics for your Omarchy marketplace plugins: hourly tracking of views, copies, hearts, stars and rank, per-plugin breakdowns over 24h to all-time windows, and a tiled app window with repository links and README viewer.",
+  "kinds": [
+    "bar-widget",
+    "panel"
+  ],
   "entryPoints": {
-    "barWidget": "BarWidget.qml"
+    "barWidget": "BarWidget.qml",
+    "panel": "App.qml"
   },
   "barWidget": {
     "displayName": "Plugin Analytics",
@@ -35,7 +39,11 @@
         "key": "barMetric",
         "type": "enum",
         "label": "Bar metric",
-        "options": ["views", "copies", "hearts"],
+        "options": [
+          "views",
+          "copies",
+          "hearts"
+        ],
         "defaultValue": "views",
         "description": "Which metric's delta the bar label shows."
       },
@@ -43,7 +51,10 @@
         "key": "barWindow",
         "type": "enum",
         "label": "Bar window",
-        "options": ["24h", "7d"],
+        "options": [
+          "24h",
+          "7d"
+        ],
         "defaultValue": "24h",
         "description": "The window the bar label's delta covers."
       },
@@ -58,7 +69,15 @@
         "key": "defaultWindow",
         "type": "enum",
         "label": "Default panel window",
-        "options": ["24h", "7d", "30d", "90d", "180d", "365d", "all"],
+        "options": [
+          "24h",
+          "7d",
+          "30d",
+          "90d",
+          "180d",
+          "365d",
+          "all"
+        ],
         "defaultValue": "7d"
       }
     ]
