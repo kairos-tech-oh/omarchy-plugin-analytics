@@ -23,6 +23,18 @@ Rectangle {
   readonly property real share: m && m.share !== undefined && m.share !== null ? Number(m.share) : -1
   readonly property var rank: entry && entry.rank ? entry.rank : null
   readonly property string matchedNote: plugin && plugin.matchedBy === "owner" ? "via repo" : ""
+  readonly property var listing: plugin && plugin.listing ? plugin.listing : ({})
+  readonly property int openIssues: plugin && plugin.totals && plugin.totals.issues ? Number(plugin.totals.issues) : 0
+
+  // Yellow: the listing is not (or no longer) verified, or the upstream check failed.
+  readonly property string warningText: {
+    if (!listing || !listing.verification) return ""
+    if (listing.upstream === "failed") return "Marketplace compatibility check failed"
+    if (listing.upstream === "unreachable") return "Marketplace could not reach the repository"
+    if (listing.verification === "unverified") return listing.coverage === "update-unverified" ? "Latest update not yet verified" : "Listing is unverified"
+    return ""
+  }
+  readonly property string alertText: openIssues > 0 ? (openIssues === 1 ? "1 open issue" : openIssues + " open issues") : ""
 
   function ink_(a) { return Qt.rgba(ink.r, ink.g, ink.b, a) }
 
@@ -59,16 +71,28 @@ Rectangle {
         spacing: Style.space(1)
         anchors.verticalCenter: parent.verticalCenter
 
-        Text {
-          textFormat: Text.PlainText
-          renderType: Text.NativeRendering
+        Row {
           width: parent.width
-          text: root.plugin ? String(root.plugin.name || root.plugin.id || "") : ""
-          color: root.focused ? root.accent : root.ink
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.subtitle
-          font.bold: true
-          elide: Text.ElideRight
+          spacing: Style.space(6)
+          Text {
+            id: nameText
+            textFormat: Text.PlainText
+            renderType: Text.NativeRendering
+            width: Math.min(implicitWidth, parent.width - badges.width - (badges.width > 0 ? parent.spacing : 0))
+            text: root.plugin ? String(root.plugin.name || root.plugin.id || "") : ""
+            color: root.focused ? root.accent : root.ink
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.subtitle
+            font.bold: true
+            elide: Text.ElideRight
+          }
+          Row {
+            id: badges
+            spacing: Style.space(4)
+            anchors.verticalCenter: parent.verticalCenter
+            Badge { visible: root.warningText !== ""; kind: "warning"; tooltip: root.warningText }
+            Badge { visible: root.alertText !== ""; kind: "alert"; tooltip: root.alertText }
+          }
         }
         Text {
           textFormat: Text.PlainText
@@ -93,6 +117,7 @@ Rectangle {
               if (t.prs) oi.push(t.prs + (t.prs === 1 ? " PR" : " PRs"))
               parts.push(oi.join(", "))
             }
+            if (root.warningText !== "") parts.push(root.warningText.toLowerCase())
             if (root.matchedNote !== "") parts.push(root.matchedNote)
             return parts.join(" · ")
           }

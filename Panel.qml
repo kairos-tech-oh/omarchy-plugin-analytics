@@ -81,10 +81,8 @@ Panel {
   property real lastCollectAttempt: 0
   property real nowMs: Date.now()
   property bool showSetup: false
-  property string authorDraft: ""
 
   onDefaultWindowChanged: if (!windowPicked) windowName = defaultWindow
-  onAuthorChanged: authorDraft = author
 
   readonly property color ink: Color.popups.text
   readonly property color surface: Color.popups.background
@@ -114,7 +112,8 @@ Panel {
       if (id === "") continue
       out.push({ id: id, name: Sanitise.plainOneLine(p.name || id, 60), repo: String(p.repo || ""),
                  category: Sanitise.plainOneLine(p.category, 30), matchedBy: String(p.matchedBy || ""),
-                 totals: p.totals || {}, firstTs: p.firstTs })
+                 totals: p.totals || {}, firstTs: p.firstTs,
+                 listing: p.listing && typeof p.listing === "object" ? p.listing : ({}) })
     }
     return out
   }
@@ -192,13 +191,24 @@ Panel {
     collectProc.running = true
   }
 
-  function commitAuthor(text) {
-    var clean = Sanitise.author(text)
-    if (clean === root.author) { if (clean !== "") resolveAuthor(); return }
-    root.updateSettings({ author: clean })
-    root.focusId = ""
-    root.timerSetupTried = false
-    Qt.callLater(root.resolveAuthor)
+  // The author is install-time configuration: `omarchy bar set <id> author <name>`
+  // (or the bar settings UI). When it changes, re-resolve against the catalog.
+  readonly property string setAuthorCommand: "omarchy bar set kairos.plugin-analytics author <your-author-or-github-owner>"
+  property string lastResolvedFor: ""
+
+  onSettingsAuthorChanged: {
+    if (root.settingsAuthor !== "" && root.settingsAuthor !== root.lastResolvedFor && root.settingsAuthor !== root.storedAuthor()) {
+      root.lastResolvedFor = root.settingsAuthor
+      root.focusId = ""
+      root.timerSetupTried = false
+      Qt.callLater(root.resolveAuthor)
+    }
+  }
+
+  function copySetAuthor() {
+    root.clipPayload = root.setAuthorCommand
+    clipProc.stdinEnabled = true
+    clipProc.running = true
   }
 
   Process {
@@ -427,7 +437,6 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      blocked: authorField.activeFocus
       onCloseRequested: root.close()
       onTabRequested: function (direction) { root.switchPanel(direction) }
 
@@ -545,36 +554,48 @@ Panel {
                 textFormat: Text.PlainText
                 renderType: Text.NativeRendering
                 width: parent.width
-                text: "Enter the author exactly as the catalog lists it — either the display name (e.g. kairos) or the GitHub owner from your repo URL (e.g. kairos-tech-oh). Both match exactly, case-insensitively."
+                text: "This widget tracks the plugins you publish. Set your author once, exactly as the catalog lists it — the display name (e.g. kairos) or the GitHub owner from your repo URLs (e.g. kairos-tech-oh):"
                 color: root.ink_(0.65)
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
                 wrapMode: Text.WordWrap
               }
-              Row {
+              Rectangle {
                 width: parent.width
-                spacing: Style.space(8)
-                TextField {
-                  id: setupField
-                  width: parent.width - setupGo.width - parent.spacing
-                  text: root.authorDraft
-                  placeholderText: "author or GitHub owner"
-                  foreground: root.ink
-                  accent: root.accent
+                radius: Style.space(5)
+                color: root.ink_(0.06)
+                implicitHeight: cmdText.implicitHeight + Style.space(14)
+                Text {
+                  id: cmdText
+                  textFormat: Text.PlainText
+                  renderType: Text.NativeRendering
+                  anchors.fill: parent
+                  anchors.margins: Style.space(7)
+                  text: root.setAuthorCommand
+                  color: root.ink_(0.85)
                   font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                  onTextChanged: root.authorDraft = text
-                  onAccepted: root.commitAuthor(text)
+                  font.pixelSize: Style.font.caption
+                  wrapMode: Text.WrapAnywhere
                 }
+              }
+              Row {
+                spacing: Style.space(8)
                 Button {
-                  id: setupGo
-                  text: "Track"
+                  text: "Copy command"
                   foreground: root.ink
                   accent: root.accent
                   bordered: true
+                  fontSize: Style.font.caption
+                  onClicked: root.copySetAuthor()
+                }
+                Text {
+                  textFormat: Text.PlainText
+                  renderType: Text.NativeRendering
+                  text: "or use this widget's settings in the bar"
+                  color: root.ink_(0.5)
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
                   anchors.verticalCenter: parent.verticalCenter
-                  enabled: Sanitise.author(root.authorDraft) !== "" && !root.collecting
-                  onClicked: root.commitAuthor(root.authorDraft)
                 }
               }
             }
@@ -844,41 +865,16 @@ Panel {
               }
             }
 
-            Row {
+            Text {
+              textFormat: Text.PlainText
+              renderType: Text.NativeRendering
               width: parent.width
-              spacing: Style.space(8)
               visible: root.resolvedState().ok
-
-              Text {
-                textFormat: Text.PlainText
-                renderType: Text.NativeRendering
-                text: "Author"
-                color: root.ink_(0.6)
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                anchors.verticalCenter: parent.verticalCenter
-              }
-              TextField {
-                id: authorField
-                width: parent.width - Style.space(120)
-                text: root.authorDraft
-                placeholderText: "author or GitHub owner"
-                foreground: root.ink
-                accent: root.accent
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.bodySmall
-                onTextChanged: root.authorDraft = text
-                onAccepted: root.commitAuthor(text)
-              }
-              Button {
-                text: "Apply"
-                foreground: root.ink
-                accent: root.accent
-                fontSize: Style.font.caption
-                anchors.verticalCenter: parent.verticalCenter
-                enabled: Sanitise.author(root.authorDraft) !== root.author && !root.collecting
-                onClicked: root.commitAuthor(root.authorDraft)
-              }
+              text: "Tracking author " + root.author + " · change it with: " + root.setAuthorCommand
+              color: root.ink_(0.5)
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WrapAnywhere
             }
           }
         }

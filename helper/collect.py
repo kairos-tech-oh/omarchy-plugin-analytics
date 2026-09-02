@@ -708,6 +708,7 @@ def build_summary(p, meta, resolved, now):
             "id": pid, "name": item.get("name", pid), "repo": item.get("repo", ""),
             "category": item.get("category", ""), "addedAt": item.get("addedAt", ""),
             "matchedBy": item.get("matchedBy", ""), "firstTs": s.first_ts if s else None,
+            "listing": item.get("listing") or {},
             "totals": totals,
             "issues": {"open": ie.get("open"), "prs": ie.get("prs"), "items": ie.get("items") or [],
                        "truncated": ie.get("truncated") is True, "repo": ie.get("repo", ""),
@@ -1117,6 +1118,14 @@ def resolve_from_catalog(body, author):
             "repo": plain(entry.get("repo"), 200) if str(entry.get("repo", "")).startswith("https://github.com/") else "",
             "category": plain(entry.get("category"), 40), "addedAt": plain(entry.get("addedAt"), 20),
             "matchedBy": "both" if by_author and by_owner else ("author" if by_author else "owner"),
+            # Listing health, as the marketplace reports it; values are allowlisted.
+            "listing": {
+                "verification": listing_value(entry.get("verificationStatus"), ("verified", "unverified")),
+                "coverage": listing_value(entry.get("verificationCoverage"), ("snapshot-verified", "update-unverified", "unverified")),
+                "upstream": listing_value(entry.get("upstreamCheckStatus"), ("passed", "failed", "unreachable")),
+                "status": plain(entry.get("status"), 40),
+                "version": plain(entry.get("version"), 40),
+            },
         })
         st = entry.get("stars")
         stars[pid] = int(st) if isinstance(st, (int, float)) and st >= 0 else 0
@@ -1124,6 +1133,11 @@ def resolve_from_catalog(body, author):
             break
     out.sort(key=lambda x: x["id"])
     return {"plugins": out, "stars": stars, "total": len(plugins)}
+
+
+def listing_value(value, allowed):
+    text = str(value or "").strip().lower()
+    return text if text in allowed else "unknown"
 
 
 def cmd_collect(args, d, p, force_catalog=False):

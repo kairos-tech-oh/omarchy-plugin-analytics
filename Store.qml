@@ -64,7 +64,8 @@ Item {
       out.push({ id: id, name: Sanitise.plainOneLine(p.name || id, 60), repo: String(p.repo || ""),
                  category: Sanitise.plainOneLine(p.category, 30), addedAt: Sanitise.plainOneLine(p.addedAt, 20),
                  matchedBy: String(p.matchedBy || ""), totals: p.totals || {}, firstTs: p.firstTs,
-                 issues: p.issues && typeof p.issues === "object" ? p.issues : null })
+                 issues: p.issues && typeof p.issues === "object" ? p.issues : null,
+                 listing: p.listing && typeof p.listing === "object" ? p.listing : ({}) })
     }
     return out
   }
@@ -156,15 +157,6 @@ Item {
     if (root.helperPath === "" || collectProc.running) return
     collectProc.command = ["timeout", "-k", "5", "200", root.helperPath, "--budget", "150", "collect"]
       .concat(force ? ["--force"] : [])
-    root.collecting = true
-    collectProc.running = true
-  }
-
-  function resolveAuthor(author) {
-    var clean = Sanitise.author(author)
-    if (clean === "" || root.helperPath === "" || collectProc.running) return
-    collectProc.command = ["timeout", "-k", "5", "200", root.helperPath, "--budget", "150",
-                           "resolve", "--author", clean]
     root.collecting = true
     collectProc.running = true
   }

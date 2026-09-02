@@ -45,6 +45,10 @@ Two surfaces over the same data:
 - **Per-plugin breakdown** — sorted by delta, with a sparkline, share-of-total bar,
   copy rate, marketplace rank by views and rank movement. Click a row to overlay
   that plugin on the chart.
+- **Attention marks** on every plugin row: a **yellow triangle** when the
+  marketplace lists the plugin as unverified (including a pushed update that has
+  not been re-verified yet) or its upstream check failed, and a **red disc** when
+  the repository has open issues. Hover either for the reason.
 - **Open issues and pull requests** — per plugin, from GitHub's public API:
   counts (windowed like every other metric), and the thirty most recently
   updated open items with author, labels, comment count, and a click-through.
@@ -54,19 +58,25 @@ Two surfaces over the same data:
 
 ## Install
 
+This plugin is for tracking the plugins **you** publish, so the author is set
+once, at install, as a value — not typed into the panel:
+
 ```
 omarchy plugin add https://github.com/kairos-tech-oh/omarchy-plugin-analytics --enable
+omarchy bar put kairos.plugin-analytics
+omarchy bar set kairos.plugin-analytics author kairos-tech-oh     # your own author
 ```
 
-Then add **Plugin Analytics** to your bar from the shell's bar settings, open it,
-and enter your author — or open the app window and enter it there. The plugin accepts either spelling the catalog uses:
+(The bar settings UI edits the same value.) The plugin accepts either spelling
+the catalog uses:
 
 - the `author` display name on your listings (e.g. `kairos`), or
 - the GitHub owner from your repository URLs (e.g. `kairos-tech-oh`).
 
-Both match exactly and case-insensitively. If nothing matches you get a clear
-error rather than an empty dashboard. Where one display name spans several
-GitHub owners (the catalog has a few), every matched row says which field matched.
+Both match exactly and case-insensitively. If nothing matches, the panel says
+so and shows the exact `omarchy bar set` command rather than an empty dashboard.
+Where one display name spans several GitHub owners (the catalog has a few),
+every matched row says which field matched.
 
 The first snapshot is taken immediately, and the plugin then sets up **persistent
 collection** on its own (see below). History accrues from that moment on.
@@ -223,22 +233,21 @@ resets, corrections, multi-day gaps, missing plugins and a rollup boundary.
 
 | Key | Values | Meaning |
 |---|---|---|
-| `author` | text | Author name or GitHub owner, matched exactly |
+| `author` | text | Set at install with `omarchy bar set`; author name or GitHub owner, matched exactly |
 | `barMetric` | `views` `copies` `hearts` | Which delta the bar label shows |
 | `barWindow` | `24h` `7d` | Window for the bar label |
 | `defaultWindow` | `24h` … `all` | Window the panel opens on |
 | `autoTimer` | `true` `false` | Install and enable the persistent collector automatically |
 
-All are editable from the shell's bar settings; the author is also editable in
-the panel.
+All are editable from the shell's bar settings or with `omarchy bar set`.
 
 ## IPC
 
 ```
 omarchy-shell shell toggle kairos.plugin-analytics        # the app window
 omarchy-shell shell summon kairos.plugin-analytics
-qs -c omarchy ipc call kairos.plugin-analytics toggle     # the bar popout
-qs -c omarchy ipc call kairos.plugin-analytics refresh
+omarchy-shell kairos.plugin-analytics toggle              # the bar popout
+omarchy-shell kairos.plugin-analytics refresh             # take a snapshot now
 ```
 
 ## Storage

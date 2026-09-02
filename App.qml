@@ -23,7 +23,6 @@ Item {
     root.closingFromHost = false
     window.visible = true
     root.nowMs = Date.now()
-    root.authorDraft = store.author()
     store.refreshSummary()
     var wanted = ""
     try {
@@ -54,10 +53,7 @@ Item {
 
   Store {
     id: store
-    onRevisionChanged: {
-      if (root.authorDraft === "") root.authorDraft = store.author()
-      if (root.opened) store.requestSeries(root.windowName, root.metric)
-    }
+    onRevisionChanged: if (root.opened) store.requestSeries(root.windowName, root.metric)
     onReadmeStateChanged: {
       root.readmeBlocks = store.readmeState === "ok" ? Markdown.parse(store.readmeText, 600) : []
       if (store.readmeState === "ok") {
@@ -98,7 +94,7 @@ Item {
   property real nowMs: Date.now()
   property var readmeBlocks: []
   property real copiedAt: 0
-  property string authorDraft: ""
+  readonly property string setAuthorCommand: "omarchy bar set kairos.plugin-analytics author <your-author-or-github-owner>"
 
   onWindowNameChanged: if (opened) store.requestSeries(windowName, metric)
   onMetricChanged: if (opened) store.requestSeries(windowName, metric)
@@ -530,32 +526,31 @@ Item {
                   Text {
                     textFormat: Text.PlainText; renderType: Text.NativeRendering
                     width: parent.width
-                    text: "Enter the author exactly as the catalog lists it — the display name (e.g. kairos) or the GitHub owner from your repo URL (e.g. kairos-tech-oh)."
+                    text: "This app tracks the plugins you publish. Set your author once, exactly as the catalog lists it — the display name (e.g. kairos) or the GitHub owner from your repo URLs (e.g. kairos-tech-oh):"
                     color: root.dim
                     font.family: root.uiFont; font.pixelSize: Style.font.caption
                     wrapMode: Text.WordWrap
                   }
-                  Row {
+                  Rectangle {
                     width: parent.width
-                    spacing: Style.space(8)
-                    TextField {
-                      id: setupField
-                      width: parent.width - setupGo.width - parent.spacing
-                      text: root.authorDraft
-                      placeholderText: "author or GitHub owner"
-                      foreground: root.ink; accent: root.accent
-                      font.family: root.uiFont; font.pixelSize: Style.font.body
-                      onTextChanged: root.authorDraft = text
-                      onAccepted: store.resolveAuthor(text)
+                    radius: Style.space(5)
+                    color: root.ink_(0.06)
+                    implicitHeight: appCmdText.implicitHeight + Style.space(14)
+                    Text {
+                      id: appCmdText
+                      textFormat: Text.PlainText; renderType: Text.NativeRendering
+                      anchors.fill: parent; anchors.margins: Style.space(7)
+                      text: root.setAuthorCommand
+                      color: root.ink_(0.85)
+                      font.family: root.monoFont; font.pixelSize: Style.font.bodySmall
+                      wrapMode: Text.WrapAnywhere
                     }
-                    Button {
-                      id: setupGo
-                      text: "Track"
-                      foreground: root.ink; accent: root.accent; bordered: true
-                      anchors.verticalCenter: parent.verticalCenter
-                      enabled: Sanitise.author(root.authorDraft) !== "" && !store.collecting
-                      onClicked: store.resolveAuthor(root.authorDraft)
-                    }
+                  }
+                  Button {
+                    text: "Copy command"
+                    foreground: root.ink; accent: root.accent; bordered: true
+                    fontSize: Style.font.caption
+                    onClicked: store.copy(root.setAuthorCommand)
                   }
                 }
               }
@@ -1077,35 +1072,14 @@ Item {
                   font.family: root.uiFont; font.pixelSize: Style.font.caption
                   wrapMode: Text.WordWrap
                 }
-                Row {
+                Text {
+                  textFormat: Text.PlainText; renderType: Text.NativeRendering
                   width: parent.width
-                  spacing: Style.space(8)
                   visible: store.resolvedState().ok
-                  Text {
-                    textFormat: Text.PlainText; renderType: Text.NativeRendering
-                    text: "Author"
-                    color: root.dim
-                    font.family: root.uiFont; font.pixelSize: Style.font.caption
-                    anchors.verticalCenter: parent.verticalCenter
-                  }
-                  TextField {
-                    id: authorField
-                    width: Style.space(320)
-                    text: root.authorDraft
-                    placeholderText: "author or GitHub owner"
-                    foreground: root.ink; accent: root.accent
-                    font.family: root.uiFont; font.pixelSize: Style.font.bodySmall
-                    onTextChanged: root.authorDraft = text
-                    onAccepted: store.resolveAuthor(text)
-                  }
-                  Button {
-                    text: "Apply"
-                    foreground: root.ink; accent: root.accent
-                    fontSize: Style.font.caption
-                    anchors.verticalCenter: parent.verticalCenter
-                    enabled: Sanitise.author(root.authorDraft) !== "" && Sanitise.author(root.authorDraft) !== store.author() && !store.collecting
-                    onClicked: store.resolveAuthor(root.authorDraft)
-                  }
+                  text: "Tracking author " + store.author() + " · change it with: " + root.setAuthorCommand
+                  color: root.faint
+                  font.family: root.uiFont; font.pixelSize: Style.font.caption
+                  wrapMode: Text.WrapAnywhere
                 }
               }
 

@@ -33,7 +33,7 @@
         "type": "string",
         "label": "Author",
         "defaultValue": "",
-        "description": "Your marketplace author name or GitHub owner, exactly as listed in the catalog."
+        "description": "Set once at install: your marketplace author name or GitHub owner, exactly as the catalog lists it. `omarchy bar set kairos.plugin-analytics author <name>`."
       },
       {
         "key": "barMetric",
