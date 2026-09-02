@@ -159,6 +159,7 @@ def append_line(path, line):
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise OSError("not a regular file")
         os.write(fd, (line + "\n").encode("utf-8"))
+        os.fsync(fd)
     finally:
         os.close(fd)
 
@@ -626,7 +627,8 @@ def build_summary(p, meta, resolved, now):
             "lastOk": meta.get("lastOk"), "lastError": meta.get("lastError"),
             "lastErrorAt": meta.get("lastErrorAt"), "snapshotCount": len(good),
             "firstTs": global_first, "corruptLines": corrupt_h + corrupt_d,
-            "timerActive": timer_active(), "catalog": meta.get("catalogStatus"),
+            "timerActive": timer_active(), "linger": timer_status()["linger"],
+            "timerSetup": meta.get("timerSetup"), "catalog": meta.get("catalogStatus"),
             "seam": seam or None,
         },
         "plugins": [], "windows": {},
@@ -741,13 +743,99 @@ def build_summary(p, meta, resolved, now):
     return summary
 
 
+_TIMER_CACHE = None
+
+
 def timer_active():
+    return timer_status()["active"]
+
+
+def timer_status():
+    # Active timer + lingering user manager is what makes collection survive logout.
+    global _TIMER_CACHE
+    if _TIMER_CACHE is not None:
+        return _TIMER_CACHE
+    out = {"active": False, "linger": False}
     try:
         r = subprocess.run(["systemctl", "--user", "is-active", "--quiet", TIMER_UNIT],
                            capture_output=True, timeout=5)
-        return r.returncode == 0
+        out["active"] = r.returncode == 0
+        user = os.environ.get("USER") or ""
+        if user:
+            r = subprocess.run(["loginctl", "show-user", user, "--property=Linger", "--value"],
+                               capture_output=True, timeout=5)
+            out["linger"] = r.stdout.decode("ascii", "replace").strip() == "yes"
     except (OSError, subprocess.TimeoutExpired):
-        return False
+        pass
+    _TIMER_CACHE = out
+    return out
+
+
+def unit_texts():
+    helper = os.path.abspath(__file__)
+    service = ("[Unit]\n"
+               "Description=Collect marketplace stats for kairos.plugin-analytics\n\n"
+               "[Service]\n"
+               "Type=oneshot\n"
+               "ExecStart=/usr/bin/python3 %s --budget 150 collect\n"
+               "Nice=10\n" % helper)
+    timer = ("[Unit]\n"
+             "Description=Hourly marketplace stats snapshot for kairos.plugin-analytics\n\n"
+             "[Timer]\n"
+             "OnBootSec=3min\n"
+             "OnCalendar=hourly\n"
+             "Persistent=true\n"
+             "RandomizedDelaySec=300\n"
+             "AccuracySec=1min\n\n"
+             "[Install]\n"
+             "WantedBy=timers.target\n")
+    return service, timer
+
+
+def cmd_ensure_timer(args, d, p):
+    # Installs the user-scope units under $XDG_CONFIG_HOME/systemd/user, enables the
+    # timer, and asks logind to keep this user's manager alive across logouts.
+    global _TIMER_CACHE
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    udir = os.path.join(base, "systemd", "user")
+    result = {"ok": False, "installed": False, "active": False, "linger": False, "error": None}
+    try:
+        os.makedirs(udir, mode=0o700, exist_ok=True)
+        st = os.lstat(udir)
+        if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid():
+            raise OSError("systemd user directory is not a private directory we own")
+        service, timer = unit_texts()
+        changed = False
+        for name, text in (("kairos-plugin-analytics.service", service), ("kairos-plugin-analytics.timer", timer)):
+            path = os.path.join(udir, name)
+            current = read_capped(path, 16 * 1024)
+            if current is None or current.decode("utf-8", "replace") != text:
+                replace_file(path, text)
+                changed = True
+        result["installed"] = True
+        if changed:
+            subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True, timeout=20)
+        r = subprocess.run(["systemctl", "--user", "enable", "--now", TIMER_UNIT], capture_output=True, timeout=20)
+        if r.returncode != 0:
+            raise OSError(r.stderr.decode("utf-8", "replace").strip()[:200] or "enable failed")
+        user = os.environ.get("USER") or ""
+        _TIMER_CACHE = None
+        if user and not timer_status()["linger"]:
+            # Allowed for an active local user without a password; best effort otherwise.
+            subprocess.run(["loginctl", "enable-linger", user], capture_output=True, timeout=20)
+        _TIMER_CACHE = None
+        status = timer_status()
+        result.update(status)
+        result["ok"] = status["active"]
+    except (OSError, subprocess.TimeoutExpired) as e:
+        result["error"] = str(e)[:200]
+    meta = load_meta(p)
+    meta["timerSetupAt"] = int(time.time())
+    meta["timerSetup"] = result
+    save_meta(p, meta)
+    resolved = read_json(p["resolved"], 1024 * 1024) or {}
+    replace_file(p["summary"], json.dumps(build_summary(p, meta, resolved, int(time.time())), separators=(",", ":")))
+    emit(result)
 
 
 # --------------------------------------------------------------------- series
@@ -1030,6 +1118,7 @@ def main():
     rd = sub.add_parser("read")
     rd.add_argument("name")
     sub.add_parser("rebuild")
+    sub.add_parser("ensure-timer")
     args = ap.parse_args()
     args.budget = max(5, min(180, args.budget))
 
@@ -1052,6 +1141,8 @@ def main():
             cmd_collect(args, d, p, force_catalog=True)
         elif args.cmd == "rebuild":
             cmd_rebuild(args, d, p)
+        elif args.cmd == "ensure-timer":
+            cmd_ensure_timer(args, d, p)
 
 
 if __name__ == "__main__":

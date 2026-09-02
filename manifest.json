@@ -20,7 +20,8 @@
       "author": "",
       "barMetric": "views",
       "barWindow": "24h",
-      "defaultWindow": "7d"
+      "defaultWindow": "7d",
+      "autoTimer": true
     },
     "schema": [
       {
@@ -45,6 +46,13 @@
         "options": ["24h", "7d"],
         "defaultValue": "24h",
         "description": "The window the bar label's delta covers."
+      },
+      {
+        "key": "autoTimer",
+        "type": "boolean",
+        "label": "Persistent collection",
+        "defaultValue": true,
+        "description": "Install and enable a user-scope systemd timer (plus user lingering) so snapshots continue through logouts, reboots and shell crashes."
       },
       {
         "key": "defaultWindow",

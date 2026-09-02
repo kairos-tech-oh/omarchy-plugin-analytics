@@ -45,6 +45,7 @@ Panel {
   readonly property string barMetric: String(setting("barMetric", "views"))
   readonly property string barWindow: String(setting("barWindow", "24h"))
   readonly property string defaultWindow: String(setting("defaultWindow", "7d"))
+  readonly property bool autoTimer: setting("autoTimer", true) !== false
 
   function updateSettings(patch) {
     var merged = Object.assign({}, root.settings || {}, patch)
@@ -181,6 +182,7 @@ Panel {
     if (clean === root.author) { if (clean !== "") resolveAuthor(); return }
     root.updateSettings({ author: clean })
     root.focusId = ""
+    root.timerSetupTried = false
     Qt.callLater(root.resolveAuthor)
   }
 
@@ -191,6 +193,47 @@ Panel {
     onExited: function (exitCode) {
       root.collecting = false
       if (exitCode !== 0) console.warn("plugin-analytics", "collect exited", exitCode)
+      summaryReader.requestRead()
+      Qt.callLater(root.maybeEnsureTimer)
+    }
+  }
+
+  // The timer is what makes history survive logouts and reboots, so it is set up
+  // automatically once an author resolves; a setting turns that off.
+  property bool timerSetupTried: false
+  property bool timerSettingUp: false
+
+  function timerState() {
+    var d = summaryData()
+    var c = d && d.collector ? d.collector : null
+    return { active: c ? c.timerActive === true : false, linger: c ? c.linger === true : false,
+             setup: c && c.timerSetup ? c.timerSetup : null }
+  }
+
+  function maybeEnsureTimer() {
+    if (!root.autoTimer || root.timerSetupTried) return
+    if (!root.resolvedState().ok) return
+    var t = timerState()
+    if (t.active && t.linger) return
+    root.ensureTimer()
+  }
+
+  function ensureTimer() {
+    if (root.helperPath === "" || timerProc.running) return
+    root.timerSetupTried = true
+    root.timerSettingUp = true
+    timerProc.command = ["timeout", "-k", "5", "90", root.helperPath, "--budget", "60", "ensure-timer"]
+    timerProc.running = true
+  }
+
+  Process {
+    id: timerProc
+    running: false
+    command: ["true"]
+    stdout: StdioCollector { waitForEnd: true }
+    onExited: function (exitCode) {
+      root.timerSettingUp = false
+      if (exitCode !== 0) console.warn("plugin-analytics", "ensure-timer exited", exitCode)
       summaryReader.requestRead()
     }
   }
@@ -710,7 +753,11 @@ Panel {
                 var c = d && d.collector ? d.collector : null
                 if (!c) return "No state yet. The first snapshot is taken as soon as an author is set."
                 var parts = []
-                parts.push(c.timerActive ? "systemd timer active — hourly, survives shell restarts" : "in-shell hourly collection — only while omarchy-shell runs")
+                if (c.timerActive && c.linger) parts.push("systemd user timer active with lingering — collects hourly through logouts, reboots and shell crashes")
+                else if (c.timerActive) parts.push("systemd user timer active — hourly while you are logged in; lingering not enabled, so nothing runs after logout")
+                else if (root.timerSettingUp) parts.push("setting up the hourly timer…")
+                else parts.push("in-shell hourly collection only — runs while omarchy-shell does")
+                if (c.timerSetup && c.timerSetup.error) parts.push("timer setup failed: " + Sanitise.plainOneLine(c.timerSetup.error, 100))
                 if (c.snapshotCount) parts.push(Model.compact(c.snapshotCount) + " snapshots since " + Model.dateShort(c.firstTs))
                 if (c.lastError) parts.push("last error: " + Sanitise.plainOneLine(c.lastError, 80))
                 if (c.corruptLines) parts.push(c.corruptLines + " unreadable lines skipped")
@@ -724,10 +771,19 @@ Panel {
 
             Row {
               spacing: Style.space(8)
-              visible: !(root.summaryData() && root.summaryData().collector && root.summaryData().collector.timerActive)
+              visible: !(root.timerState().active && root.timerState().linger)
 
               Button {
-                text: root.showSetup ? "Hide timer setup" : "Set up hourly timer"
+                text: root.timerSettingUp ? "Enabling…" : "Enable persistent collection"
+                foreground: root.ink
+                accent: root.accent
+                fontSize: Style.font.caption
+                bordered: true
+                enabled: !root.timerSettingUp && root.author !== ""
+                onClicked: root.ensureTimer()
+              }
+              Button {
+                text: root.showSetup ? "Hide manual steps" : "Manual steps"
                 foreground: root.ink
                 accent: root.accent
                 fontSize: Style.font.caption
@@ -735,7 +791,7 @@ Panel {
               }
               Button {
                 visible: root.showSetup
-                text: "Copy commands"
+                text: "Copy"
                 foreground: root.ink
                 accent: root.accent
                 fontSize: Style.font.caption
@@ -755,7 +811,7 @@ Panel {
                 renderType: Text.NativeRendering
                 anchors.fill: parent
                 anchors.margins: Style.space(8)
-                text: "Run once in a terminal — user scope only, nothing privileged:\n\n" + root.setupCommands() + "\nThe panel never runs these itself."
+                text: "Equivalent manual steps, user scope only:\n\n" + root.setupCommands() + "loginctl enable-linger $USER\n\nThe last line keeps your user services running after logout."
                 color: root.ink_(0.8)
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption

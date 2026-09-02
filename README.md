@@ -48,35 +48,47 @@ Both match exactly and case-insensitively. If nothing matches you get a clear
 error rather than an empty dashboard. Where one display name spans several
 GitHub owners (the catalog has a few), every matched row says which field matched.
 
-The first snapshot is taken immediately. From then on the plugin collects **once
-an hour while omarchy-shell is running**. That is enough for most people.
+The first snapshot is taken immediately, and the plugin then sets up **persistent
+collection** on its own (see below). History accrues from that moment on.
 
-### Optional: collect even when the shell is not running
+### Collection survives logouts, reboots and crashes
 
-Hours when you are logged out or the shell is down are permanent holes in your
-history, because the APIs cannot be asked about the past. A user-level systemd
-timer closes those holes: it runs the same collector hourly, independently of the
-shell, and catches up one missed run after boot.
+The APIs cannot be asked about the past, so every hour not collected is a
+permanent hole. To close them, the plugin does three things once an author
+resolves — all in **user scope, nothing privileged**:
 
-Run once in a terminal — user scope only, nothing privileged:
+1. Writes two unit files to `~/.config/systemd/user/` and enables
+   `kairos-plugin-analytics.timer`: hourly, `Persistent=true` (a missed run is
+   caught up at the next start), `OnBootSec=3min`.
+2. Runs `loginctl enable-linger` for your user, so your systemd user instance
+   keeps running after you log out and starts at boot. Polkit allows an active
+   local user to do this for themselves without a password.
+3. Fsyncs every appended snapshot and replaces every other state file atomically,
+   so a crash mid-write cannot lose or corrupt what was already collected.
+
+With the timer active the in-shell collector stands down, so the two never race
+(and a file lock plus a minimum spacing guard make a race harmless anyway).
+
+The panel's collector section shows which of these is in effect. Turn the
+automatic setup off with the **Persistent collection** setting; the panel then
+offers an *Enable* button and the equivalent manual steps:
 
 ```
 mkdir -p ~/.config/systemd/user
 cp ~/.config/omarchy/plugins/kairos.plugin-analytics/systemd/* ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now kairos-plugin-analytics.timer
+loginctl enable-linger $USER
 ```
-
-The panel shows these commands with a copy button; it never runs them itself.
-When the timer is active the in-shell collector stands down, so the two never race.
 
 ## Remove
 
 ```
-systemctl --user disable --now kairos-plugin-analytics.timer   # only if you enabled it
+systemctl --user disable --now kairos-plugin-analytics.timer
 rm -f ~/.config/systemd/user/kairos-plugin-analytics.{service,timer}
 systemctl --user daemon-reload
 omarchy plugin remove kairos.plugin-analytics
+loginctl disable-linger $USER   # only if nothing else of yours relies on lingering
 ```
 
 Your collected history is **retained** at `~/.local/state/kairos.plugin-analytics/`
@@ -85,9 +97,9 @@ so a reinstall picks up where it left off. Delete that directory to remove it.
 ## How it works
 
 ```
-systemd --user timer (optional)  ─┐
+systemd --user timer (auto-installed) ─┐
                                   ├─> helper/collect.py ──> ~/.local/state/kairos.plugin-analytics/
-in-shell hourly timer            ─┘        (short-lived)          hourly.jsonl   35 days of hourly rows
+in-shell hourly timer (fallback)      ─┘        (short-lived)          hourly.jsonl   35 days of hourly rows
                                                                   daily.jsonl    older rows, one per UTC day
 omarchy-shell ─> BarWidget ─> Panel ─> bounded read ──────────>   summary.json   what the panel shows
                                     ─> collect.py series ─────>   (chart buckets on demand)
@@ -148,6 +160,7 @@ resets, corrections, multi-day gaps, missing plugins and a rollup boundary.
 | `barMetric` | `views` `copies` `hearts` | Which delta the bar label shows |
 | `barWindow` | `24h` `7d` | Window for the bar label |
 | `defaultWindow` | `24h` … `all` | Window the panel opens on |
+| `autoTimer` | `true` `false` | Install and enable the persistent collector automatically |
 
 All are editable from the shell's bar settings; the author is also editable in
 the panel.
