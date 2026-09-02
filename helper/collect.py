@@ -24,7 +24,11 @@ REPO_URL = "https://github.com/kairos-tech-oh/omarchy-plugin-analytics"
 
 STATS_URL = "https://api.omarchyplugins.com/v1/stats"
 CATALOG_URL = "https://plugins.omarchy.org/catalog.json"
-ALLOWED_HOSTS = {"api.omarchyplugins.com", "plugins.omarchy.org", "raw.githubusercontent.com"}
+ALLOWED_HOSTS = {"api.omarchyplugins.com", "plugins.omarchy.org", "raw.githubusercontent.com", "api.github.com"}
+# Open issues / pull requests per repo, from GitHub's public API with ETags.
+ISSUES_CAP = 4 * 1024 * 1024
+ISSUES_MAX_ITEMS = 30
+ISSUES_MAX_LABELS = 5
 README_CAP = 512 * 1024
 README_TTL = 6 * 3600
 README_NAMES = ("README.md", "readme.md", "README.markdown", "Readme.md", "README")
@@ -56,7 +60,7 @@ ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 ETAG_RE = re.compile(r'^(W/)?"[\x21\x23-\x7e]{1,128}"$')
 
 # Metric index inside a hourly row's per-plugin array.
-M_VIEWS, M_COPIES, M_HEARTS, M_RANK = 0, 1, 2, 3
+M_VIEWS, M_COPIES, M_HEARTS, M_RANK, M_ISSUES, M_PRS = 0, 1, 2, 3, 4, 5
 METRICS = ("views", "copies", "hearts")
 MONOTONIC = {"views": True, "copies": True, "hearts": False}
 
@@ -210,9 +214,10 @@ def validated_address(host, hosts=None):
     return chosen
 
 
-def fetch(url, cap, budget, etag=None, hosts=None, redirect=None):
+def fetch(url, cap, budget, etag=None, hosts=None, redirect=None, headers=None, info=None):
     # Returns (status, body, etag). status is an int HTTP code, or None on failure.
-    # With `redirect` (a dict), a 3xx stores its Location there instead of failing.
+    # With `redirect` (a dict), a 3xx stores its Location there instead of failing;
+    # `info` (a dict) receives the raw response headers for the caller to inspect.
     m = re.match(r"^https://([a-z0-9.-]+)/", url)
     host = m.group(1) if m else ""
     ip = validated_address(host, hosts)
@@ -233,6 +238,8 @@ def fetch(url, cap, budget, etag=None, hosts=None, redirect=None):
                "-o", body_path, "-D", head_path, "-w", "%{http_code}"]
         if etag and ETAG_RE.match(etag):
             cmd += ["-H", "If-None-Match: " + etag]
+        for h in headers or []:
+            cmd += ["-H", h]
         cmd += ["--", url]
         try:
             proc = subprocess.run(cmd, capture_output=True, timeout=budget + 10)
@@ -245,6 +252,9 @@ def fetch(url, cap, budget, etag=None, hosts=None, redirect=None):
             return None, b"", None
         code = int(code)
         headers = read_capped(head_path, 64 * 1024)
+        if info is not None:
+            info["headers"] = headers or b""
+            info["status"] = code
         new_etag = etag_from_headers(headers)
         if code in (301, 302, 303, 307, 308) and redirect is not None:
             redirect["location"] = header_value(headers, "location")
@@ -418,6 +428,8 @@ class Series:
         self.segs = {m: [] for m in METRICS}
         self.rank = []
         self.stars = []
+        self.issues = []
+        self.prs = []
         self.obs_ts = []
         self.first_ts = None
 
@@ -451,6 +463,9 @@ def build_series(hourly, daily, catalog, seam):
                     s.obs[m].append((row["t"], e[idx]))
                 if len(e) > M_RANK and e[M_RANK] is not None:
                     s.rank.append((row["t"], e[M_RANK]))
+                if len(e) > M_PRS and e[M_ISSUES] is not None and e[M_PRS] is not None:
+                    s.issues.append((row["t"], e[M_ISSUES]))
+                    s.prs.append((row["t"], e[M_PRS]))
                 s.obs_ts.append(row["t"])
             if s.first_ts is None or a < s.first_ts:
                 s.first_ts = entry.get("f", a) if entry.get("f") else a
@@ -481,6 +496,8 @@ def build_series(hourly, daily, catalog, seam):
             s.segs[m].extend(segs)
             s.obs[m].extend(o for o in obs if not seam or o[0] > seam)
         s.rank.extend((t, arr[M_RANK]) for t, arr in items if len(arr) > M_RANK and isinstance(arr[M_RANK], (int, float)))
+        s.issues.extend((t, arr[M_ISSUES]) for t, arr in items if len(arr) > M_PRS and isinstance(arr[M_ISSUES], (int, float)))
+        s.prs.extend((t, arr[M_PRS]) for t, arr in items if len(arr) > M_PRS and isinstance(arr[M_PRS], (int, float)))
         s.obs_ts.extend(t for t, _ in items)
         if s.first_ts is None or items[0][0] < s.first_ts:
             s.first_ts = items[0][0]
@@ -497,6 +514,8 @@ def build_series(hourly, daily, catalog, seam):
             s.segs[m].sort(key=lambda x: x.a)
         s.rank.sort()
         s.stars.sort()
+        s.issues.sort()
+        s.prs.sort()
         s.obs_ts = sorted(set(s.obs_ts))
     return series
 
@@ -547,6 +566,9 @@ def rollup(p, meta, now):
                 e = [last_obs_at_or_before(s.obs[m], t_last)[1] for m in METRICS]
                 rk = last_obs_at_or_before(s.rank, t_last)
                 e.append(rk[1] if rk else None)
+                oi = last_obs_at_or_before(s.issues, t_last)
+                op = last_obs_at_or_before(s.prs, t_last)
+                e.extend([oi[1] if oi else None, op[1] if op else None])
                 item["e"] = e
                 last_t = t_last if last_t is None else max(last_t, t_last)
             if s.first_ts and a <= s.first_ts < b:
@@ -639,6 +661,9 @@ def build_summary(p, meta, resolved, now):
     nr = good[-1].get("nr") if good else None
 
     tracked = [x for x in (resolved.get("plugins") or []) if valid_id(x.get("id"))]
+    issues_store = read_json(os.path.join(os.path.dirname(p["meta"]), "issues.json"), 8 * 1024 * 1024) or {}
+    if not isinstance(issues_store, dict):
+        issues_store = {}
     global_first = None
     for s in series.values():
         if s.first_ts is not None and (global_first is None or s.first_ts < global_first):
@@ -675,11 +700,18 @@ def build_summary(p, meta, resolved, now):
             totals["stars"] = st[1] if st else None
             totals["starsAt"] = st[0] if st else None
             totals["copyRate"] = round(totals["copies"] / float(totals["views"]), 4) if totals.get("views") else None
+        ie = issues_store.get(pid) if isinstance(issues_store.get(pid), dict) else {}
+        if "open" in ie:
+            totals["issues"] = ie.get("open")
+            totals["prs"] = ie.get("prs")
         summary["plugins"].append({
             "id": pid, "name": item.get("name", pid), "repo": item.get("repo", ""),
             "category": item.get("category", ""), "addedAt": item.get("addedAt", ""),
             "matchedBy": item.get("matchedBy", ""), "firstTs": s.first_ts if s else None,
             "totals": totals,
+            "issues": {"open": ie.get("open"), "prs": ie.get("prs"), "items": ie.get("items") or [],
+                       "truncated": ie.get("truncated") is True, "repo": ie.get("repo", ""),
+                       "fetchedAt": ie.get("t"), "stale": ie.get("stale", True) if ie else None} if ie else None,
         })
 
     if T is None:
@@ -729,6 +761,8 @@ def build_summary(p, meta, resolved, now):
                 agg_stars += stw["delta"]
             else:
                 stars_known = False
+            entry["issues"] = sparse_window(s.issues, a, b, PERIOD)
+            entry["prs"] = sparse_window(s.prs, a, b, PERIOD)
             rk = sparse_window(s.rank, a, b, PERIOD)
             if rk:
                 rk["improvement"] = -rk["delta"] if rk.get("delta") is not None else None
@@ -760,6 +794,11 @@ def build_summary(p, meta, resolved, now):
             win["agg"][m] = a_m
         win["agg"]["stars"] = {"delta": agg_stars if stars_known else None,
                                "total": sum((x["totals"].get("stars") or 0) for x in summary["plugins"])}
+        for key in ("issues", "prs"):
+            total = sum((x["totals"].get(key) or 0) for x in summary["plugins"])
+            deltas = [e[key]["delta"] for e in win["plugins"].values() if e.get(key) and e[key].get("delta") is not None]
+            known = all(e.get(key) and e[key].get("delta") is not None for e in win["plugins"].values() if e.get("status") == "ok")
+            win["agg"][key] = {"total": total, "delta": sum(deltas) if known and deltas else None}
         dv, dc = agg["views"]["net"], agg["copies"]["net"]
         win["agg"]["copyRate"] = round(dc / dv, 4) if dv >= 30 else None
         win["agg"]["partial"] = any_partial
@@ -816,6 +855,120 @@ def unit_texts():
              "[Install]\n"
              "WantedBy=timers.target\n")
     return service, timer
+
+
+ISSUE_URL_RE = re.compile(r"^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/(issues|pull)/(\d{1,9})$")
+
+
+def iso_to_epoch(text):
+    try:
+        return int(dt.datetime.strptime(str(text), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc).timestamp())
+    except (ValueError, TypeError):
+        return None
+
+
+def parse_issues(body, owner, name):
+    # Reduces GitHub's issues list to counts plus a short, sanitised item list.
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if not isinstance(data, list):
+        return None
+    items, n_issues, n_prs = [], 0, 0
+    for it in data:
+        if not isinstance(it, dict) or it.get("state") != "open":
+            continue
+        number = it.get("number")
+        if not isinstance(number, int) or number <= 0:
+            continue
+        is_pr = isinstance(it.get("pull_request"), dict)
+        if is_pr:
+            n_prs += 1
+        else:
+            n_issues += 1
+        url = str(it.get("html_url") or "")
+        m = ISSUE_URL_RE.match(url)
+        if not m or m.group(1).lower() != owner.lower() or m.group(2).lower() != name.lower():
+            url = "https://github.com/%s/%s/%s/%d" % (owner, name, "pull" if is_pr else "issues", number)
+        user = it.get("user") if isinstance(it.get("user"), dict) else {}
+        labels = []
+        for lb in (it.get("labels") or [])[:ISSUES_MAX_LABELS]:
+            nm = plain(lb.get("name") if isinstance(lb, dict) else lb, 30)
+            if nm:
+                labels.append(nm)
+        items.append({
+            "n": number, "kind": "pr" if is_pr else "issue", "title": plain(it.get("title"), 120),
+            "url": url, "by": plain(user.get("login"), 40), "labels": labels,
+            "comments": int(it.get("comments") or 0) if isinstance(it.get("comments"), int) else 0,
+            "updated": iso_to_epoch(it.get("updated_at")), "created": iso_to_epoch(it.get("created_at")),
+            "draft": it.get("draft") is True,
+        })
+    items.sort(key=lambda x: x["updated"] or 0, reverse=True)
+    # The list is one page of 100; past that the counts are a floor, not a total.
+    return {"open": n_issues, "prs": n_prs, "items": items[:ISSUES_MAX_ITEMS], "truncated": len(data) >= 100}
+
+
+def rate_limit_from(headers):
+    remaining = header_value(headers, "x-ratelimit-remaining")
+    reset = header_value(headers, "x-ratelimit-reset")
+    return (int(remaining) if remaining.isdigit() else None, int(reset) if reset.isdigit() else None)
+
+
+def fetch_issues(p, meta, resolved, remaining, now):
+    # One conditional request per tracked repo; 304s are free of GitHub's rate limit.
+    store = read_json(os.path.join(os.path.dirname(p["meta"]), "issues.json"), 8 * 1024 * 1024) or {}
+    if not isinstance(store, dict):
+        store = {}
+    until = meta.get("githubRateLimitedUntil") or 0
+    counts = {}
+    if isinstance(until, int) and until > now:
+        log("github rate limit active until %d; skipping issues" % until)
+        for pid, e in store.items():
+            if isinstance(e, dict) and "open" in e:
+                counts[pid] = (e["open"], e["prs"])
+        return counts
+    changed = False
+    for x in resolved.get("plugins") or []:
+        pid = x.get("id")
+        parts = repo_parts(x.get("repo"))
+        if not valid_id(pid) or parts is None:
+            continue
+        if remaining() < 15:
+            log("budget exhausted before issues for %s" % pid)
+            break
+        prev = store.get(pid) if isinstance(store.get(pid), dict) else {}
+        url = "https://api.github.com/repos/%s/%s/issues?state=open&per_page=100" % parts
+        info = {}
+        status, body, etag = fetch(url, ISSUES_CAP, min(remaining(), 20), prev.get("etag"),
+                                   headers=["Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"],
+                                   info=info)
+        rem, reset = rate_limit_from(info.get("headers", b""))
+        if status is None and rem == 0 and reset:
+            meta["githubRateLimitedUntil"] = reset
+            log("github rate limited until %d" % reset)
+            break
+        if status == 304 and prev:
+            store[pid] = dict(prev, t=now, stale=False)
+            changed = True
+        elif status == 200:
+            parsed = parse_issues(body, parts[0], parts[1])
+            body = b""
+            if parsed is None:
+                store[pid] = dict(prev, stale=True) if prev else {"stale": True}
+            else:
+                parsed.update({"t": now, "etag": etag, "stale": False, "repo": "https://github.com/%s/%s" % parts})
+                store[pid] = parsed
+            changed = True
+        elif prev:
+            store[pid] = dict(prev, stale=True)
+            changed = True
+        e = store.get(pid) or {}
+        if "open" in e:
+            counts[pid] = (e["open"], e["prs"])
+    if changed:
+        replace_file(os.path.join(os.path.dirname(p["meta"]), "issues.json"), json.dumps(store, separators=(",", ":")))
+    return counts
 
 
 def cmd_ensure_timer(args, d, p):
@@ -1095,6 +1248,11 @@ def cmd_collect(args, d, p, force_catalog=False):
             continue
         vals.append(rank_of(vals[0]))
         row_p[x["id"]] = vals
+
+    issue_counts = fetch_issues(p, meta, resolved, remaining, now)
+    for pid, vals in row_p.items():
+        if pid in issue_counts:
+            vals.extend([int(issue_counts[pid][0]), int(issue_counts[pid][1])])
 
     row = {"v": 1, "t": now, "nr": nr, "p": row_p}
     prev_nr = hourly[-1].get("nr") if hourly else None

@@ -63,7 +63,8 @@ Item {
       if (id === "") continue
       out.push({ id: id, name: Sanitise.plainOneLine(p.name || id, 60), repo: String(p.repo || ""),
                  category: Sanitise.plainOneLine(p.category, 30), addedAt: Sanitise.plainOneLine(p.addedAt, 20),
-                 matchedBy: String(p.matchedBy || ""), totals: p.totals || {}, firstTs: p.firstTs })
+                 matchedBy: String(p.matchedBy || ""), totals: p.totals || {}, firstTs: p.firstTs,
+                 issues: p.issues && typeof p.issues === "object" ? p.issues : null })
     }
     return out
   }

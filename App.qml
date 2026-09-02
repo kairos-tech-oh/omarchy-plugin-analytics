@@ -199,6 +199,22 @@ Item {
     return src ? Model.trendText(src[name]) : ""
   }
 
+  function issuesBlock() {
+    var p = selected()
+    return p && p.issues ? p.issues : null
+  }
+
+  function issueCountText(kind) {
+    var ib = issuesBlock()
+    if (!ib || ib[kind === "prs" ? "prs" : "open"] === null || ib[kind === "prs" ? "prs" : "open"] === undefined) return "–"
+    var n = Number(ib[kind === "prs" ? "prs" : "open"])
+    var text = String(n) + (ib.truncated ? "+" : "")
+    var e = entryFor(root.selectedId)
+    var w = e ? e[kind] : null
+    if (w && w.delta) text += " (" + Model.signed(w.delta) + " " + Model.windowLabel(root.windowName) + ")"
+    return text
+  }
+
   function rankText() {
     var e = entryFor(root.selectedId)
     if (!e || !e.rank || !e.rank.now) return "–"
@@ -614,7 +630,17 @@ Item {
                 textFormat: Text.PlainText; renderType: Text.NativeRendering
                 width: parent.width
                 visible: root.selectedId === "" && store.resolvedState().ok
-                text: "All plugins · " + Model.windowLabel(root.windowName) + " · " + Model.coverageCaption(root.win(), root.windowName)
+                text: {
+                  var head = "All plugins · " + Model.windowLabel(root.windowName) + " · " + Model.coverageCaption(root.win(), root.windowName)
+                  var w = root.win()
+                  if (!w || !w.agg || !w.agg.issues) return head
+                  var oi = w.agg.issues, op = w.agg.prs
+                  var open = "open across your plugins: " + Model.num(oi.total) + (oi.total === 1 ? " issue" : " issues") + ", " + Model.num(op.total) + (op.total === 1 ? " PR" : " PRs")
+                  var deltas = []
+                  if (oi.delta) deltas.push(Model.signed(oi.delta) + " issues")
+                  if (op.delta) deltas.push(Model.signed(op.delta) + " PRs")
+                  return head + "\n" + open + (deltas.length ? " (" + deltas.join(", ") + " " + Model.windowLabel(root.windowName) + ")" : "")
+                }
                 color: root.dim
                 font.family: root.uiFont; font.pixelSize: Style.font.caption
                 elide: Text.ElideRight
@@ -701,6 +727,139 @@ Item {
                   color: root.dim
                   font.family: root.uiFont; font.pixelSize: Style.font.caption
                   elide: Text.ElideRight
+                }
+              }
+
+              // ------------------------------------------- issues & PRs
+              Column {
+                width: parent.width
+                spacing: Style.space(6)
+                visible: root.selectedId !== "" && store.resolvedState().ok
+
+                Row {
+                  width: parent.width
+                  spacing: Style.space(8)
+                  PanelSectionHeader {
+                    text: Sanitise.barSafe("OPEN ISSUES " + root.issueCountText("issues") + "   ·   PULL REQUESTS " + root.issueCountText("prs"))
+                    foreground: root.ink
+                    fontFamily: root.uiFont
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: parent.width - issuesOpen.width - prsOpen.width - parent.spacing * 2
+                    elide: Text.ElideRight
+                  }
+                  Button {
+                    id: issuesOpen
+                    text: "Issues ↗"
+                    foreground: root.ink; accent: root.accent
+                    fontSize: Style.font.caption
+                    enabled: { var p = root.selected(); return p && Model.safeExternalUrl(p.repo) !== "" }
+                    onClicked: { var p = root.selected(); if (p) root.openExternal(p.repo + "/issues") }
+                  }
+                  Button {
+                    id: prsOpen
+                    text: "Pull requests ↗"
+                    foreground: root.ink; accent: root.accent
+                    fontSize: Style.font.caption
+                    enabled: { var p = root.selected(); return p && Model.safeExternalUrl(p.repo) !== "" }
+                    onClicked: { var p = root.selected(); if (p) root.openExternal(p.repo + "/pulls") }
+                  }
+                }
+
+                Text {
+                  textFormat: Text.PlainText; renderType: Text.NativeRendering
+                  width: parent.width
+                  visible: text !== ""
+                  text: {
+                    var ib = root.issuesBlock()
+                    if (!ib) return "Not fetched yet — issue counts arrive with the next hourly snapshot."
+                    if (ib.open === null || ib.open === undefined) return "GitHub did not answer for this repository yet."
+                    var parts = []
+                    if (ib.items.length === 0) parts.push("Nothing open. ")
+                    if (ib.stale) parts.push("Showing the last successful fetch; GitHub could not be reached this hour.")
+                    else if (ib.fetchedAt) parts.push("From GitHub " + Model.relTime(root.nowMs / 1000 - Number(ib.fetchedAt)) + ".")
+                    if (ib.truncated) parts.push("Only the first 100 open items are counted.")
+                    return parts.join(" ")
+                  }
+                  color: root.faint
+                  font.family: root.uiFont; font.pixelSize: Style.font.caption
+                  wrapMode: Text.WordWrap
+                }
+
+                Column {
+                  width: parent.width
+                  spacing: Style.space(2)
+
+                  Repeater {
+                    model: { var ib = root.issuesBlock(); return ib && ib.items ? ib.items : [] }
+
+                    Rectangle {
+                      required property var modelData
+                      readonly property bool isPr: String(modelData.kind) === "pr"
+                      readonly property string itemUrl: Model.safeExternalUrl(modelData.url)
+                      width: mainCol.width
+                      radius: Style.space(5)
+                      color: rowHover.containsMouse ? root.ink_(0.05) : "transparent"
+                      implicitHeight: rowCol.implicitHeight + Style.space(12)
+
+                      MouseArea {
+                        id: rowHover
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: itemUrl !== "" ? Qt.PointingHandCursor : Qt.ArrowCursor
+                        onClicked: if (itemUrl !== "") root.openExternal(itemUrl)
+                      }
+
+                      Row {
+                        id: rowCol
+                        anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
+                        anchors.margins: Style.space(6); anchors.leftMargin: Style.space(8); anchors.rightMargin: Style.space(8)
+                        spacing: Style.space(10)
+
+                        Rectangle {
+                          width: Style.space(34); height: Style.space(18)
+                          radius: Style.space(4)
+                          anchors.verticalCenter: parent.verticalCenter
+                          color: isPr ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.18) : root.ink_(0.08)
+                          Text {
+                            anchors.centerIn: parent
+                            textFormat: Text.PlainText; renderType: Text.NativeRendering
+                            text: isPr ? (modelData.draft ? "DRAFT" : "PR") : "ISSUE"
+                            color: isPr ? root.accent : root.dim
+                            font.family: root.uiFont; font.pixelSize: Style.font.caption - 1; font.bold: true
+                          }
+                        }
+
+                        Column {
+                          width: parent.width - Style.space(34) - parent.spacing
+                          spacing: Style.space(1)
+                          Text {
+                            textFormat: Text.PlainText; renderType: Text.NativeRendering
+                            width: parent.width
+                            text: "#" + Number(modelData.n) + "  " + String(modelData.title || "")
+                            color: root.ink
+                            font.family: root.uiFont; font.pixelSize: Style.font.body
+                            elide: Text.ElideRight
+                          }
+                          Text {
+                            textFormat: Text.PlainText; renderType: Text.NativeRendering
+                            width: parent.width
+                            text: {
+                              var parts = []
+                              if (modelData.by) parts.push("by " + String(modelData.by))
+                              if (modelData.updated) parts.push("updated " + Model.relTime(root.nowMs / 1000 - Number(modelData.updated)))
+                              if (Number(modelData.comments) > 0) parts.push(Number(modelData.comments) + (Number(modelData.comments) === 1 ? " comment" : " comments"))
+                              var labels = modelData.labels || []
+                              if (labels.length) parts.push(labels.join(", "))
+                              return parts.join(" · ")
+                            }
+                            color: root.dim
+                            font.family: root.uiFont; font.pixelSize: Style.font.caption
+                            elide: Text.ElideRight
+                          }
+                        }
+                      }
+                    }
+                  }
                 }
               }
 

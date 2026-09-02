@@ -87,6 +87,12 @@ Rectangle {
                 r += " (" + (root.rank.improvement > 0 ? "↑" : "↓") + Math.abs(root.rank.improvement) + ")"
               parts.push(r)
             }
+            if (t && (t.issues || t.prs)) {
+              var oi = []
+              if (t.issues) oi.push(t.issues + (t.issues === 1 ? " issue" : " issues"))
+              if (t.prs) oi.push(t.prs + (t.prs === 1 ? " PR" : " PRs"))
+              parts.push(oi.join(", "))
+            }
             if (root.matchedNote !== "") parts.push(root.matchedNote)
             return parts.join(" · ")
           }

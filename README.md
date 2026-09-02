@@ -45,6 +45,10 @@ Two surfaces over the same data:
 - **Per-plugin breakdown** — sorted by delta, with a sparkline, share-of-total bar,
   copy rate, marketplace rank by views and rank movement. Click a row to overlay
   that plugin on the chart.
+- **Open issues and pull requests** — per plugin, from GitHub's public API:
+  counts (windowed like every other metric), and the thirty most recently
+  updated open items with author, labels, comment count, and a click-through.
+  Counts also appear in every plugin row and in the overview.
 - **Collector status** — what is collecting, how many snapshots exist since when,
   and the last error if any.
 
@@ -158,6 +162,7 @@ that summary through a bounded read; the 5 MB catalog never enters the shell.
 | `https://plugins.omarchy.org/catalog.json` | hourly, conditional | 5.3 MB, but served with an `ETag`; unchanged catalogs cost one `304` round trip and no body. Provides author resolution and GitHub stars. |
 | `https://raw.githubusercontent.com/<owner>/<repo>/HEAD/README.md` | on demand, cached 6 h | Only for plugins in your own resolved set, only from the app window's detail view. Capped at 512 KB. |
 | README images on GitHub's image hosts | on demand, cached 7 d | Downloaded and header-checked by the helper; the shell only ever opens the local file. |
+| `https://api.github.com/repos/<owner>/<repo>/issues?state=open` | hourly, conditional | One request per tracked repo with `If-None-Match`; a `304` costs nothing against GitHub's 60/hour unauthenticated limit. If the limit is hit, collection pauses until GitHub's reset time and shows the last good data. Capped at 4 MB and 100 items per repo. |
 
 Requests are HTTPS-only to a fixed allowlist, pinned to a freshly validated
 address, refuse redirects, carry a whole-request deadline and a byte cap, and
@@ -204,7 +209,8 @@ The metrics are cumulative counters sampled irregularly. The naive
   runs do not corrupt it.
 - **Hearts and stars are signed.** People un-heart and un-star; those deltas can
   legitimately be negative and are shown that way. Stars are sparse and are never
-  prorated.
+  prorated. Open issue and PR counts are treated the same way: signed, sparse,
+  observed hourly.
 - **Rollup is lossless for everything shown.** Daily rows store the day's gross,
   adjustments, resets and coverage computed from the hourly rows, so a 90-day
   query returns the same answer before and after a day crosses the 35-day
@@ -249,6 +255,7 @@ qs -c omarchy ipc call kairos.plugin-analytics refresh
 | `meta.json` | ETag, last run, rollup seam | tiny |
 | `readme/<id>.json` | cached README text per plugin | ≤ 512 KB each |
 | `readme-images/<hash>.*` | header-checked README images, 7-day cache | ≤ 8 MB each |
+| `issues.json` | open issue/PR counts and items per plugin, with ETags | small |
 
 Up to 50 plugins are tracked per author. Nothing leaves your machine except the
 two API requests above; no credentials are involved anywhere.
