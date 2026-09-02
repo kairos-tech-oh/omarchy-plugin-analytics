@@ -1,0 +1,9 @@
+[Unit]
+Description=Collect marketplace stats for kairos.plugin-analytics
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.config/omarchy/plugins/kairos.plugin-analytics/helper/collect.py --budget 150 collect
+Nice=10

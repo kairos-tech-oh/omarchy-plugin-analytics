@@ -1,0 +1,11 @@
+[Unit]
+Description=Hourly marketplace stats snapshot for kairos.plugin-analytics
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=300
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target
