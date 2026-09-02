@@ -28,6 +28,15 @@ ALLOWED_HOSTS = {"api.omarchyplugins.com", "plugins.omarchy.org", "raw.githubuse
 README_CAP = 512 * 1024
 README_TTL = 6 * 3600
 README_NAMES = ("README.md", "readme.md", "README.markdown", "Readme.md", "README")
+# README images: GitHub-hosted only, downloaded and header-checked before Qt sees them.
+IMAGE_HOSTS = {"raw.githubusercontent.com", "user-images.githubusercontent.com",
+               "private-user-images.githubusercontent.com", "camo.githubusercontent.com",
+               "avatars.githubusercontent.com", "objects.githubusercontent.com", "github.com"}
+IMAGE_CAP = 8 * 1024 * 1024
+IMAGE_MAX_DIM = 6000
+IMAGE_MAX_PIXELS = 12_000_000
+IMAGE_TTL = 7 * 86400
+IMAGE_MAX_HOPS = 3
 
 STATS_CAP = 4 * 1024 * 1024
 CATALOG_CAP = 24 * 1024 * 1024
@@ -184,8 +193,8 @@ class Lock:
 
 # --------------------------------------------------------------------- network
 
-def validated_address(host):
-    if host not in ALLOWED_HOSTS:
+def validated_address(host, hosts=None):
+    if host not in (hosts or ALLOWED_HOSTS):
         return None
     try:
         infos = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
@@ -201,11 +210,12 @@ def validated_address(host):
     return chosen
 
 
-def fetch(url, cap, budget, etag=None):
+def fetch(url, cap, budget, etag=None, hosts=None, redirect=None):
     # Returns (status, body, etag). status is an int HTTP code, or None on failure.
+    # With `redirect` (a dict), a 3xx stores its Location there instead of failing.
     m = re.match(r"^https://([a-z0-9.-]+)/", url)
     host = m.group(1) if m else ""
-    ip = validated_address(host)
+    ip = validated_address(host, hosts)
     if ip is None:
         log("refusing %s: host not allowlisted or resolved to a private address" % host)
         return None, b"", None
@@ -234,7 +244,11 @@ def fetch(url, cap, budget, etag=None):
             log("fetch failed: %s" % proc.stderr.decode("utf-8", "replace").strip()[:200])
             return None, b"", None
         code = int(code)
-        new_etag = etag_from_headers(read_capped(head_path, 64 * 1024))
+        headers = read_capped(head_path, 64 * 1024)
+        new_etag = etag_from_headers(headers)
+        if code in (301, 302, 303, 307, 308) and redirect is not None:
+            redirect["location"] = header_value(headers, "location")
+            return code, b"", None
         if code == 304:
             return 304, b"", new_etag or etag
         if code != 200:
@@ -245,6 +259,15 @@ def fetch(url, cap, budget, etag=None):
             log("fetch %s exceeded %d bytes, refusing" % (host, cap))
             return None, b"", None
         return 200, body, new_etag
+
+
+def header_value(raw, name):
+    if not raw:
+        return ""
+    for line in raw.decode("latin-1").split("\n"):
+        if line.lower().startswith(name + ":"):
+            return line.split(":", 1)[1].strip()
+    return ""
 
 
 def etag_from_headers(raw):
@@ -1137,6 +1160,138 @@ def cmd_readme(args, d, p):
     emit(out)
 
 
+def image_dimensions(head):
+    # (format, width, height) from the first bytes, or None. Each side is bounded
+    # before the product is taken so a huge declared size cannot overflow past the check.
+    if head[:8] == b"\x89PNG\r\n\x1a\n" and head[12:16] == b"IHDR":
+        return "png", int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
+    if head[:3] == b"\xff\xd8\xff":
+        # Walk JPEG markers to the first SOF segment.
+        i = 2
+        while i + 9 < len(head):
+            if head[i] != 0xFF:
+                i += 1
+                continue
+            marker = head[i + 1]
+            if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7:
+                i += 2
+                continue
+            seg_len = int.from_bytes(head[i + 2:i + 4], "big")
+            if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                return "jpeg", int.from_bytes(head[i + 7:i + 9], "big"), int.from_bytes(head[i + 5:i + 7], "big")
+            i += 2 + seg_len
+        return None
+    if head[:6] in (b"GIF87a", b"GIF89a"):
+        return "gif", int.from_bytes(head[6:8], "little"), int.from_bytes(head[8:10], "little")
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        chunk = head[12:16]
+        if chunk == b"VP8 " and len(head) >= 30:
+            return "webp", int.from_bytes(head[26:28], "little") & 0x3FFF, int.from_bytes(head[28:30], "little") & 0x3FFF
+        if chunk == b"VP8L" and len(head) >= 25:
+            b = head[21:25]
+            return "webp", (b[0] | ((b[1] & 0x3F) << 8)) + 1, ((b[1] >> 6) | (b[2] << 2) | ((b[3] & 0x0F) << 10)) + 1
+        if chunk == b"VP8X" and len(head) >= 30:
+            return "webp", int.from_bytes(head[24:27], "little") + 1, int.from_bytes(head[27:30], "little") + 1
+    return None
+
+
+def normalize_image_url(raw_url, owner, name):
+    # Relative README paths and github.com blob/raw links all become raw file URLs.
+    u = str(raw_url or "").strip()
+    if re.search(r"[\x00-\x20<>\"'\\]", u) or len(u) > 2048:
+        return None
+    if u.startswith("//"):
+        u = "https:" + u
+    if not re.match(r"^[a-z]+:", u):
+        u = u.lstrip("./")
+        if u.startswith("/"):
+            u = u[1:]
+        return "https://raw.githubusercontent.com/%s/%s/HEAD/%s" % (owner, name, u)
+    m = re.match(r"^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/(?:blob|raw)/([^/]+)/(.+)$", u)
+    if m:
+        return "https://raw.githubusercontent.com/%s/%s/%s/%s" % (m.group(1), m.group(2), m.group(3), m.group(4).split("?")[0])
+    if not u.startswith("https://"):
+        return None
+    return u
+
+
+def cmd_image(args, d, p):
+    # Downloads one README image into the cache after checking host, size and
+    # declared dimensions; prints where it landed. The shell only ever loads that file.
+    pid = args.plugin
+    if not valid_id(pid):
+        emit({"ok": False, "reason": "bad-id"})
+        return
+    resolved = read_json(p["resolved"], 1024 * 1024) or {}
+    entry = next((x for x in (resolved.get("plugins") or []) if x.get("id") == pid), None)
+    parts = repo_parts(entry.get("repo")) if entry else None
+    if parts is None:
+        emit({"ok": False, "reason": "no-repo"})
+        return
+    url = normalize_image_url(args.url, parts[0], parts[1])
+    if url is None:
+        emit({"ok": False, "reason": "bad-url"})
+        return
+    import hashlib
+    key = hashlib.sha256(url.encode("utf-8")).hexdigest()[:32]
+    cache_dir = os.path.join(d, "readme-images")
+    os.makedirs(cache_dir, mode=0o700, exist_ok=True)
+    meta_path = os.path.join(cache_dir, key + ".json")
+    now = int(time.time())
+    cached = read_json(meta_path, 8192)
+    if cached and isinstance(cached.get("t"), int) and now - cached["t"] < IMAGE_TTL:
+        if not cached.get("ok") or os.path.isfile(cached.get("path", "")):
+            cached["cached"] = True
+            emit(cached)
+            return
+
+    def finish(result):
+        result["t"] = now
+        result["url"] = url
+        replace_file(meta_path, json.dumps(result, separators=(",", ":")))
+        emit(result)
+
+    host = re.match(r"^https://([a-z0-9.-]+)/", url)
+    if not host or host.group(1) not in IMAGE_HOSTS:
+        finish({"ok": False, "reason": "host"})
+        return
+    # Follow at most a few redirects, validating every hop against the same allowlist.
+    current = url
+    body = None
+    for _ in range(IMAGE_MAX_HOPS + 1):
+        hop = {}
+        status, data, _ = fetch(current, IMAGE_CAP, min(args.budget, 40), hosts=IMAGE_HOSTS, redirect=hop)
+        if status == 200:
+            body = data
+            break
+        loc = hop.get("location", "")
+        if not loc:
+            break
+        if loc.startswith("/"):
+            loc = "https://" + host.group(1) + loc
+        m = re.match(r"^https://([a-z0-9.-]+)/", loc)
+        if not m or m.group(1) not in IMAGE_HOSTS or re.search(r"[\x00-\x20<>\"'\\]", loc):
+            finish({"ok": False, "reason": "redirect"})
+            return
+        current = loc
+    if body is None:
+        finish({"ok": False, "reason": "fetch"})
+        return
+    dims = image_dimensions(body[:4096])
+    if dims is None:
+        finish({"ok": False, "reason": "format"})
+        return
+    fmt, w, h = dims
+    if not (1 <= w <= IMAGE_MAX_DIM and 1 <= h <= IMAGE_MAX_DIM) or w * h > IMAGE_MAX_PIXELS:
+        finish({"ok": False, "reason": "too-large", "width": w, "height": h})
+        return
+    ext = {"png": "png", "jpeg": "jpg", "gif": "gif", "webp": "webp"}[fmt]
+    path = os.path.join(cache_dir, key + "." + ext)
+    replace_file(path, body)
+    body = b""
+    finish({"ok": True, "path": path, "width": w, "height": h, "format": fmt, "bytes": os.path.getsize(path)})
+
+
 def cmd_read(args, d, p):
     name = args.name
     if name not in ("summary", "resolved", "meta"):
@@ -1175,6 +1330,9 @@ def main():
     rm = sub.add_parser("readme")
     rm.add_argument("--plugin", required=True)
     rm.add_argument("--refresh", action="store_true")
+    im = sub.add_parser("image")
+    im.add_argument("--plugin", required=True)
+    im.add_argument("--url", required=True)
     args = ap.parse_args()
     args.budget = max(5, min(180, args.budget))
 
@@ -1191,6 +1349,9 @@ def main():
         return
     if args.cmd == "readme":
         cmd_readme(args, d, p)
+        return
+    if args.cmd == "image":
+        cmd_image(args, d, p)
         return
     with Lock(d):
         if args.cmd == "collect":

@@ -227,6 +227,85 @@ Item {
     }
   }
 
+  // -------------------------------------------------------------- images
+  // One download at a time, for the plugin whose README is showing. Results are
+  // keyed by the URL as written in the README; the helper normalises it.
+  property var images: ({})
+  property int imageRevision: 0
+  property var imageQueue: []
+  property string imagePlugin: ""
+  readonly property int imageCapBytes: 8192
+
+  function imageState(url) {
+    var r = root.imageRevision
+    return root.images[url] || null
+  }
+
+  function requestImages(pluginId, urls) {
+    var clean = Sanitise.pluginId(pluginId)
+    if (clean === "") return
+    if (clean !== root.imagePlugin) { root.images = ({}); root.imagePlugin = clean; root.imageRevision++ }
+    var queue = []
+    for (var i = 0; i < urls.length && queue.length < 24; i++) {
+      var u = String(urls[i] || "")
+      if (u === "" || root.images[u]) continue
+      var next = ({})
+      for (var k in root.images) next[k] = root.images[k]
+      next[u] = { state: "queued" }
+      root.images = next
+      queue.push(u)
+    }
+    root.imageQueue = root.imageQueue.concat(queue)
+    root.imageRevision++
+    root.pumpImages()
+  }
+
+  function pumpImages() {
+    if (imageProc.running || root.imageQueue.length === 0 || root.helperPath === "") return
+    var url = root.imageQueue[0]
+    root.imageQueue = root.imageQueue.slice(1)
+    root.setImage(url, { state: "loading" })
+    imageProc.url = url
+    imageProc.command = ["timeout", "-k", "2", "60", root.helperPath, "--budget", "45",
+                         "image", "--plugin", root.imagePlugin, "--url", url]
+    imageProc.running = true
+  }
+
+  function setImage(url, value) {
+    var next = ({})
+    for (var k in root.images) next[k] = root.images[k]
+    next[url] = value
+    root.images = next
+    root.imageRevision++
+  }
+
+  Process {
+    id: imageProc
+    property string url: ""
+    running: false
+    command: ["true"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var raw = String(text || "")
+        var result = { state: "error" }
+        if (root.utf8ByteLength(raw) <= root.imageCapBytes) {
+          try {
+            var parsed = JSON.parse(raw)
+            if (parsed && parsed.ok === true && /^\/[^\0]+\.(png|jpg|gif|webp)$/.test(String(parsed.path || ""))) {
+              result = { state: "ok", path: String(parsed.path), width: Number(parsed.width) || 0,
+                         height: Number(parsed.height) || 0, format: String(parsed.format || "") }
+            } else {
+              result = { state: "refused", reason: parsed && parsed.reason ? String(parsed.reason) : "error" }
+            }
+          } catch (e) { result = { state: "error" } }
+        }
+        root.setImage(imageProc.url, result)
+      }
+    }
+    onExited: function () { Qt.callLater(root.pumpImages) }
+  }
+
   // ------------------------------------------------------------- actions
 
   property string clipPayload: ""

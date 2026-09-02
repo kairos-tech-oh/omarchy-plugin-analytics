@@ -60,6 +60,14 @@ Item {
     }
     onReadmeStateChanged: {
       root.readmeBlocks = store.readmeState === "ok" ? Markdown.parse(store.readmeText, 600) : []
+      if (store.readmeState === "ok") {
+        var urls = []
+        for (var i = 0; i < root.readmeBlocks.length; i++) {
+          var b = root.readmeBlocks[i]
+          if (b.type === "image" && !b.badge) urls.push(b.url)
+        }
+        store.requestImages(store.readmeId, urls)
+      }
       if (store.readmeState !== "loading" && root.scrollTopPending) {
         root.scrollTopPending = false
         Qt.callLater(function () { mainFlick.contentY = 0 })
@@ -750,7 +758,7 @@ Item {
                   textFormat: Text.PlainText; renderType: Text.NativeRendering
                   width: parent.width
                   visible: store.readmeState === "ok" && store.readmeId === root.selectedId
-                  text: (store.readmeStale ? "cached copy · " : "") + store.readmeUrl + "  ·  rendered as plain text"
+                  text: (store.readmeStale ? "cached copy · " : "") + store.readmeUrl + "  ·  text rendered plain, images from GitHub only"
                   color: root.faint
                   font.family: root.uiFont; font.pixelSize: Style.font.caption
                   elide: Text.ElideMiddle
@@ -770,8 +778,79 @@ Item {
                       readonly property bool isCode: kind === "code" || kind === "table"
                       readonly property bool isQuote: kind === "quote"
                       readonly property bool isHeading: kind === "heading"
+                      readonly property bool isImage: kind === "image"
+                      readonly property var img: isImage ? store.imageState(String(modelData.url || "")) : null
+                      readonly property bool imgReady: img !== null && img.state === "ok" && img.width > 0 && img.height > 0
+                      // Badges that could not be fetched vanish; real images explain themselves.
+                      readonly property bool imgHidden: isImage && modelData.badge === true && !imgReady
+                      readonly property real imgWidth: imgReady ? Math.min(width, img.width) : 0
+                      readonly property real imgHeight: imgReady ? imgWidth * img.height / img.width : 0
                       width: mainCol.width
-                      implicitHeight: kind === "hr" ? Style.space(8) : blockText.implicitHeight + (isCode ? Style.space(20) : 0)
+                      visible: !imgHidden
+                      implicitHeight: imgHidden ? 0
+                        : kind === "hr" ? Style.space(8)
+                        : isImage ? (imgReady ? imgHeight + (imageCaption.visible ? imageCaption.implicitHeight + Style.space(4) : 0) : imagePlaceholder.implicitHeight)
+                        : blockText.implicitHeight + (isCode ? Style.space(20) : 0)
+
+                      // Always a local file the helper already checked; sourceSize bounds
+                      // the retained pixmap, the helper's pixel cap bounds the decode.
+                      Image {
+                        id: readmeImage
+                        visible: imgReady
+                        source: imgReady ? "file://" + img.path : ""
+                        asynchronous: true
+                        cache: false
+                        fillMode: Image.PreserveAspectFit
+                        sourceSize.width: imgReady ? Math.min(img.width, 1600) : 0
+                        width: imgWidth
+                        height: imgHeight
+                        smooth: true
+                      }
+                      Rectangle {
+                        visible: imgReady
+                        anchors.fill: readmeImage
+                        color: "transparent"
+                        radius: Style.space(4)
+                        border.width: 1
+                        border.color: root.hairline
+                      }
+                      Text {
+                        id: imageCaption
+                        textFormat: Text.PlainText
+                        renderType: Text.NativeRendering
+                        visible: imgReady && (String(modelData.text || "") !== "" || (img && img.format === "gif"))
+                        anchors.top: readmeImage.bottom
+                        anchors.topMargin: Style.space(4)
+                        width: parent.width
+                        text: String(modelData.text || "") + (img && img.format === "gif" ? (String(modelData.text || "") !== "" ? " · " : "") + "GIF, first frame" : "")
+                        color: root.faint
+                        font.family: root.uiFont
+                        font.pixelSize: Style.font.caption
+                        elide: Text.ElideRight
+                      }
+                      Text {
+                        id: imagePlaceholder
+                        textFormat: Text.PlainText
+                        renderType: Text.NativeRendering
+                        visible: isImage && !imgReady && !imgHidden
+                        width: parent.width
+                        text: {
+                          var alt = String(modelData.text || "")
+                          var label = alt !== "" ? "⟨image: " + alt + "⟩" : "⟨image⟩"
+                          if (!img || img.state === "queued" || img.state === "loading") return label + "  fetching…"
+                          if (img.state === "refused") {
+                            var why = { host: "only GitHub-hosted images are shown", "too-large": "larger than the size limit",
+                                        format: "not a PNG, JPEG, GIF or WebP", redirect: "redirected off GitHub",
+                                        fetch: "could not be fetched", "bad-url": "unusable link" }[img.reason] || "not shown"
+                            return label + "  " + why
+                          }
+                          return label + "  not shown"
+                        }
+                        color: root.faint
+                        font.family: root.uiFont
+                        font.pixelSize: Style.font.caption
+                        wrapMode: Text.WordWrap
+                      }
 
                       Rectangle {
                         visible: isCode
@@ -794,7 +873,7 @@ Item {
                         id: blockText
                         textFormat: Text.PlainText
                         renderType: Text.NativeRendering
-                        visible: kind !== "hr"
+                        visible: kind !== "hr" && !isImage
                         x: isCode ? Style.space(10) : (isQuote ? Style.space(12) : 0)
                         y: isCode ? Style.space(10) : 0
                         width: parent.width - x - (isCode ? Style.space(10) : 0)

@@ -24,6 +24,29 @@ function inline(text) {
   return t
 }
 
+// Pulls images out of a paragraph before inline() strips its HTML. Each becomes
+// its own block; the helper decides later whether it may be fetched.
+function extractImages(text) {
+  var images = []
+  var t = String(text || "")
+  t = t.replace(/<img\b[^>]*?src\s*=\s*["']([^"']+)["'][^>]*>/gi, function (m, src) {
+    var alt = (m.match(/\balt\s*=\s*["']([^"']*)["']/i) || [null, ""])[1]
+    images.push({ url: src, alt: alt })
+    return " "
+  })
+  t = t.replace(/!\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g, function (_, alt, url) {
+    images.push({ url: url, alt: alt })
+    return " "
+  })
+  // A link that only wrapped an image is now empty; drop it rather than print its target.
+  t = t.replace(/\[\s*\]\([^)]*\)/g, " ")
+  return { text: t, images: images }
+}
+
+function isBadge(url) {
+  return /shields\.io|badge|badgen\.net|img\.shields|\.svg(\?|$)|travis-ci|circleci|codecov|coveralls/i.test(String(url || ""))
+}
+
 function imageOnly(text) {
   var stripped = String(text || "").replace(/⟨image:[^⟩]*⟩/g, "").replace(/‹[^›]*›/g, "").trim()
   return stripped === "" && /⟨image:/.test(text)
@@ -38,8 +61,13 @@ function parse(source, maxBlocks) {
 
   function flushPara() {
     if (para.length) {
-      var text = inline(para.join(" ").replace(/\s+/g, " ").trim())
+      var ex = extractImages(para.join(" "))
+      var text = inline(ex.text.replace(/\s+/g, " ").trim()).replace(/\s+/g, " ").trim()
       if (text !== "" && !imageOnly(text)) blocks.push({ type: "para", text: text })
+      for (var k = 0; k < ex.images.length; k++) {
+        var im = ex.images[k]
+        blocks.push({ type: "image", url: String(im.url || ""), text: inline(im.alt || ""), badge: isBadge(im.url) })
+      }
       para = []
     }
   }

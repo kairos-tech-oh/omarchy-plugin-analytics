@@ -29,8 +29,8 @@ Two surfaces over the same data:
   like any other, painted translucent over your wallpaper in the current theme.
   It adds a plugin sidebar, a detail view per plugin with **Repository** and
   **Marketplace** links, a copyable install command, rank and percentile, and
-  the plugin's **README rendered inline** (fetched from the repository, cached
-  six hours, shown as plain text — never as markup).
+  the plugin's **README rendered inline** — text as plain text, never markup,
+  and its images shown after the helper has downloaded and size-checked them.
 
 - **Bar label** — the delta for one metric over 24h or 7d (`▲ 128`), with a
   per-plugin tooltip. Middle-click refreshes.
@@ -157,6 +157,7 @@ that summary through a bounded read; the 5 MB catalog never enters the shell.
 | `https://api.omarchyplugins.com/v1/stats` | hourly | 137 KB; views, copies, hearts for every plugin. Rank is computed from this. |
 | `https://plugins.omarchy.org/catalog.json` | hourly, conditional | 5.3 MB, but served with an `ETag`; unchanged catalogs cost one `304` round trip and no body. Provides author resolution and GitHub stars. |
 | `https://raw.githubusercontent.com/<owner>/<repo>/HEAD/README.md` | on demand, cached 6 h | Only for plugins in your own resolved set, only from the app window's detail view. Capped at 512 KB. |
+| README images on GitHub's image hosts | on demand, cached 7 d | Downloaded and header-checked by the helper; the shell only ever opens the local file. |
 
 Requests are HTTPS-only to a fixed allowlist, pinned to a freshly validated
 address, refuse redirects, carry a whole-request deadline and a byte cap, and
@@ -165,9 +166,22 @@ the previous state rather than inventing a new one.
 
 READMEs are rendered through a small plain-text Markdown reader: headings, lists,
 code, quotes and tables keep their shape, links show their `https` target inline,
-images become `⟨image: alt⟩`, and HTML is stripped. Nothing from a README ever
-reaches a rich-text element. The only URLs the app will open externally are
-`https://github.com/…` and `https://plugins.omarchy.org/…`.
+and HTML is stripped. Nothing from a README ever reaches a rich-text element. The
+only URLs the app will open externally are `https://github.com/…` and
+`https://plugins.omarchy.org/…`.
+
+**README images are shown, but never loaded from the network by the shell.** For
+each image the helper resolves the link (relative paths and `github.com/…/blob/…`
+become raw file URLs), accepts only GitHub-hosted sources — `raw.githubusercontent.com`,
+`user-images`/`private-user-images`/`camo`/`avatars`/`objects.githubusercontent.com`,
+and `github.com` — follows at most three redirects validating every hop against
+that list, caps the download at 8 MB, then reads the **declared dimensions from
+the file header** and refuses anything over 6000 px a side or 12 megapixels
+*before* any decoder runs. Only PNG, JPEG, GIF (first frame) and WebP are accepted.
+The checked file is cached under `~/.local/state/kairos.plugin-analytics/readme-images/`
+for a week and the app loads that local path with a bounded `sourceSize`.
+Badges from shields.io and similar are skipped silently; any other refused image
+says why in place.
 
 ### The maths, and why it is not the obvious version
 
@@ -234,6 +248,7 @@ qs -c omarchy ipc call kairos.plugin-analytics refresh
 | `summary.json` | everything the panel shows | ~35 KB for 5 plugins |
 | `meta.json` | ETag, last run, rollup seam | tiny |
 | `readme/<id>.json` | cached README text per plugin | ≤ 512 KB each |
+| `readme-images/<hash>.*` | header-checked README images, 7-day cache | ≤ 8 MB each |
 
 Up to 50 plugins are tracked per author. Nothing leaves your machine except the
 two API requests above; no credentials are involved anywhere.
