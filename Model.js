@@ -9,8 +9,24 @@ var WINDOWS = [
 ]
 
 var METRICS = [
-  { value: "views", label: "Views" }, { value: "copies", label: "Copies" }, { value: "hearts", label: "Hearts" }
+  { value: "views", label: "Views" }, { value: "copies", label: "Copies" },
+  { value: "hearts", label: "Hearts" }, { value: "stars", label: "Stars" }
 ]
+
+// The marketplace's six card accents, used for listings without a preview image.
+var ACCENTS = { cyan: "#22d3ee", rose: "#fb7185", violet: "#a78bfa", lime: "#a3e635", amber: "#fbbf24", coral: "#fb923c" }
+
+function accentColor(name, fallback) {
+  return ACCENTS[String(name || "")] || fallback
+}
+
+// Window delta for a metric entry: prorated metrics carry `net`, sparse ones `delta`.
+function entryDelta(m) {
+  if (!m) return null
+  if (m.net !== undefined && m.net !== null) return num(m.net)
+  if (m.delta !== undefined && m.delta !== null) return num(m.delta)
+  return null
+}
 
 function windowLabel(name) {
   for (var i = 0; i < WINDOWS.length; i++) if (WINDOWS[i].value === name) return WINDOWS[i].label
@@ -113,7 +129,8 @@ function pluginsSorted(win, plugins, metric) {
     var p = plugins[i]
     var e = win && win.plugins ? win.plugins[p.id] : null
     var m = e && e[metric] ? e[metric] : null
-    out.push({ plugin: p, entry: e, delta: m ? num(m.net) : 0 })
+    var d = entryDelta(m)
+    out.push({ plugin: p, entry: e, delta: d === null ? 0 : d })
   }
   out.sort(function (a, b) { return b.delta - a.delta })
   return out

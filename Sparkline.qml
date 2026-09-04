@@ -7,6 +7,8 @@ Item {
   property var buckets: []
   property color color: Color.accent
   property color surface: Color.popups.background
+  property bool fill: false
+  property real lineWidth: 1.5
 
   Canvas {
     id: canvas
@@ -32,9 +34,18 @@ Item {
       function x(i) { return pad + (i / (n - 1)) * (width - pad * 2) }
       function y(v) { return pad + (1 - (v - lo) / (hi - lo)) * (height - pad * 2) }
       var zy = y(0)
+      if (root.fill) {
+        ctx.beginPath(); ctx.moveTo(x(0), zy)
+        for (var f = 0; f < n; f++) ctx.lineTo(x(f), y(Number(arr[f].v) || 0))
+        ctx.lineTo(x(n - 1), zy); ctx.closePath()
+        var g = ctx.createLinearGradient(0, 0, 0, height)
+        g.addColorStop(0, Qt.rgba(root.color.r, root.color.g, root.color.b, 0.45))
+        g.addColorStop(1, Qt.rgba(root.color.r, root.color.g, root.color.b, 0.04))
+        ctx.fillStyle = g; ctx.fill()
+      }
       ctx.beginPath(); ctx.moveTo(0, Math.round(zy) + 0.5); ctx.lineTo(width, Math.round(zy) + 0.5)
       ctx.lineWidth = 1; ctx.strokeStyle = Qt.rgba(root.color.r, root.color.g, root.color.b, 0.18); ctx.stroke()
-      ctx.lineWidth = 1.5
+      ctx.lineWidth = root.lineWidth
       ctx.lineJoin = "round"
       ctx.lineCap = "round"
       var k = 0
@@ -62,6 +73,7 @@ Item {
     target: root
     function onBucketsChanged() { canvas.requestPaint() }
     function onColorChanged() { canvas.requestPaint() }
+    function onFillChanged() { canvas.requestPaint() }
     function onWidthChanged() { canvas.requestPaint() }
     function onHeightChanged() { canvas.requestPaint() }
   }

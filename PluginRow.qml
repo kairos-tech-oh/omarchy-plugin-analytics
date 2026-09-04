@@ -133,7 +133,7 @@ Rectangle {
         textFormat: Text.PlainText
         renderType: Text.NativeRendering
         anchors.verticalCenter: parent.verticalCenter
-        text: root.m ? Model.signed(root.m.net) : "–"
+        text: Model.entryDelta(root.m) === null ? "–" : Model.signed(Model.entryDelta(root.m))
         color: root.status === "ok" ? root.ink : root.ink_(0.45)
         font.family: root.fontFamily
         font.pixelSize: Style.font.heading

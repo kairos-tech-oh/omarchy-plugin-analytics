@@ -35,7 +35,8 @@ README_NAMES = ("README.md", "readme.md", "README.markdown", "Readme.md", "READM
 # README images: GitHub-hosted only, downloaded and header-checked before Qt sees them.
 IMAGE_HOSTS = {"raw.githubusercontent.com", "user-images.githubusercontent.com",
                "private-user-images.githubusercontent.com", "camo.githubusercontent.com",
-               "avatars.githubusercontent.com", "objects.githubusercontent.com", "github.com"}
+               "avatars.githubusercontent.com", "objects.githubusercontent.com", "github.com",
+               "plugins.omarchy.org"}
 IMAGE_CAP = 8 * 1024 * 1024
 IMAGE_MAX_DIM = 6000
 IMAGE_MAX_PIXELS = 12_000_000
@@ -709,6 +710,8 @@ def build_summary(p, meta, resolved, now):
             "category": item.get("category", ""), "addedAt": item.get("addedAt", ""),
             "matchedBy": item.get("matchedBy", ""), "firstTs": s.first_ts if s else None,
             "listing": item.get("listing") or {},
+            "description": item.get("description", ""), "preview": item.get("preview", ""),
+            "accent": item.get("accent", "unknown"), "initials": item.get("initials", ""),
             "totals": totals,
             "issues": {"open": ie.get("open"), "prs": ie.get("prs"), "items": ie.get("items") or [],
                        "truncated": ie.get("truncated") is True, "repo": ie.get("repo", ""),
@@ -1059,7 +1062,7 @@ def cmd_series(args, d, p):
         emit({"v": 1, "ok": False, "reason": "no-data"})
         return
     T = good[-1]["t"]
-    metric = args.metric if args.metric in METRICS else "views"
+    metric = args.metric if args.metric in METRICS or args.metric == "stars" else "views"
     names = dict(WINDOWS)
     if args.window not in names and args.window not in ("today", "month"):
         refuse("unknown window")
@@ -1077,8 +1080,9 @@ def cmd_series(args, d, p):
         s = series.get(pid)
         if not s:
             continue
-        agg_segs.extend(s.segs[metric])
-        per[pid] = bucketize(s.segs[metric], a, b, unit)
+        segs = s.segs[metric] if metric in METRICS else hourly_segments(s.stars, False)
+        agg_segs.extend(segs)
+        per[pid] = bucketize(segs, a, b, unit)
     out = {"v": 1, "ok": True, "window": args.window, "metric": metric, "unit": unit,
            "a": a, "b": b, "asOf": T, "agg": bucketize(agg_segs, a, b, unit), "plugins": per}
     text = json.dumps(out, separators=(",", ":"))
@@ -1118,6 +1122,10 @@ def resolve_from_catalog(body, author):
             "repo": plain(entry.get("repo"), 200) if str(entry.get("repo", "")).startswith("https://github.com/") else "",
             "category": plain(entry.get("category"), 40), "addedAt": plain(entry.get("addedAt"), 20),
             "matchedBy": "both" if by_author and by_owner else ("author" if by_author else "owner"),
+            "description": plain(entry.get("description"), 240),
+            "preview": preview_url(entry.get("previewThumbnail")),
+            "accent": listing_value(entry.get("accent"), ("cyan", "rose", "violet", "lime", "amber", "coral")),
+            "initials": re.sub(r"[^A-Z0-9]", "", str(entry.get("initials") or "").upper())[:3],
             # Listing health, as the marketplace reports it; values are allowlisted.
             "listing": {
                 "verification": listing_value(entry.get("verificationStatus"), ("verified", "unverified")),
@@ -1133,6 +1141,14 @@ def resolve_from_catalog(body, author):
             break
     out.sort(key=lambda x: x["id"])
     return {"plugins": out, "stars": stars, "total": len(plugins)}
+
+
+PREVIEW_RE = re.compile(r"^assets/img/plugins/[A-Za-z0-9._-]{1,160}\.(webp|png|jpg|jpeg)$")
+
+
+def preview_url(path):
+    text = str(path or "")
+    return "https://plugins.omarchy.org/" + text if PREVIEW_RE.match(text) else ""
 
 
 def listing_value(value, allowed):
@@ -1425,6 +1441,9 @@ def cmd_image(args, d, p):
 
     host = re.match(r"^https://([a-z0-9.-]+)/", url)
     if not host or host.group(1) not in IMAGE_HOSTS:
+        finish({"ok": False, "reason": "host"})
+        return
+    if host.group(1) == "plugins.omarchy.org" and not url.startswith("https://plugins.omarchy.org/assets/img/plugins/"):
         finish({"ok": False, "reason": "host"})
         return
     # Follow at most a few redirects, validating every hop against the same allowlist.

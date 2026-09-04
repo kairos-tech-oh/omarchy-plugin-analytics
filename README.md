@@ -27,10 +27,16 @@ Two surfaces over the same data:
   panel with the window picker, stat tiles, trend chart and per-plugin rows.
 - **App window** for sitting down with it: a real toplevel window Hyprland tiles
   like any other, painted translucent over your wallpaper in the current theme.
-  It adds a plugin sidebar, a detail view per plugin with **Repository** and
-  **Marketplace** links, a copyable install command, rank and percentile, and
-  the plugin's **README rendered inline** — text as plain text, never markup,
-  and its images shown after the helper has downloaded and size-checked them.
+  Its overview keeps the aggregate tiles and shows **one card per plugin, styled
+  like the marketplace listing** — the listing's preview (or its accent-and-
+  initials placeholder), dimmed, with the trend for the chosen metric drawn over
+  it, the description, and the current views / copies / hearts / stars / rank /
+  issues underneath. A toggle above the cards picks which trend they show
+  (views, copies, hearts, stars). Click a card for the detail view: **Repository**
+  and **Marketplace** links, a copyable install command, rank and percentile, the
+  trend against all your plugins, open issues and PRs, and the plugin's **README
+  rendered inline** — text as plain text, never markup, and its images shown after
+  the helper has downloaded and size-checked them.
 
 - **Bar label** — the delta for one metric over 24h or 7d (`▲ 128`), with a
   per-plugin tooltip. Middle-click refreshes.
@@ -172,6 +178,7 @@ that summary through a bounded read; the 5 MB catalog never enters the shell.
 | `https://plugins.omarchy.org/catalog.json` | hourly, conditional | 5.3 MB, but served with an `ETag`; unchanged catalogs cost one `304` round trip and no body. Provides author resolution and GitHub stars. |
 | `https://raw.githubusercontent.com/<owner>/<repo>/HEAD/README.md` | on demand, cached 6 h | Only for plugins in your own resolved set, only from the app window's detail view. Capped at 512 KB. |
 | README images on GitHub's image hosts | on demand, cached 7 d | Downloaded and header-checked by the helper; the shell only ever opens the local file. |
+| `https://plugins.omarchy.org/assets/img/plugins/*` | on demand, cached 7 d | The listing card thumbnails (720×405 WebP), through the same header-checked pipeline; only that path prefix is accepted. |
 | `https://api.github.com/repos/<owner>/<repo>/issues?state=open` | hourly, conditional | One request per tracked repo with `If-None-Match`; a `304` costs nothing against GitHub's 60/hour unauthenticated limit. If the limit is hit, collection pauses until GitHub's reset time and shows the last good data. Capped at 4 MB and 100 items per repo. |
 
 Requests are HTTPS-only to a fixed allowlist, pinned to a freshly validated

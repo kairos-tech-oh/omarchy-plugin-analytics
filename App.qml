@@ -31,6 +31,7 @@ Item {
     } catch (error) { wanted = "" }
     if (wanted !== "") root.selectPlugin(wanted)
     store.requestSeries(root.windowName, root.metric)
+    root.requestPreviews()
     Qt.callLater(function () { keyCatcher.forceActiveFocus() })
   }
 
@@ -53,7 +54,10 @@ Item {
 
   Store {
     id: store
-    onRevisionChanged: if (root.opened) store.requestSeries(root.windowName, root.metric)
+    onRevisionChanged: {
+      if (root.opened) store.requestSeries(root.windowName, root.metric)
+      root.requestPreviews()
+    }
     onReadmeStateChanged: {
       root.readmeBlocks = store.readmeState === "ok" ? Markdown.parse(store.readmeText, 600) : []
       if (store.readmeState === "ok") {
@@ -110,6 +114,11 @@ Item {
   }
 
   function selected() { return root.selectedId === "" ? null : store.plugin(root.selectedId) }
+
+  function requestPreviews() {
+    var list = store.plugins()
+    for (var i = 0; i < list.length; i++) if (list[i].preview !== "") store.requestPreview(list[i].id, list[i].preview)
+  }
 
   function win() { return store.win(root.windowName) }
 
@@ -658,6 +667,84 @@ Item {
                   value: root.selectedId === "" ? root.tileValue("stars") : root.rankText()
                   sub: root.selectedId === "" ? root.tileSub("stars") : root.rankSub()
                   ink: root.ink; accent: root.accent; fontFamily: root.uiFont
+                  emphasis: root.selectedId === "" && root.metric === "stars"
+                }
+              }
+
+              // ------------------------------------------- overview cards
+              Column {
+                width: parent.width
+                spacing: Style.space(10)
+                visible: root.selectedId === "" && store.resolvedState().ok
+
+                Row {
+                  width: parent.width
+                  spacing: Style.space(8)
+                  PanelSectionHeader {
+                    text: "PLUGINS · " + Model.windowLabel(root.windowName).toUpperCase() + " TREND"
+                    foreground: root.ink
+                    fontFamily: root.uiFont
+                    width: parent.width - overviewMetric.width - parent.spacing
+                    elide: Text.ElideRight
+                    anchors.verticalCenter: parent.verticalCenter
+                  }
+                  ButtonGroup {
+                    id: overviewMetric
+                    options: Model.METRICS
+                    value: root.metric
+                    foreground: root.ink
+                    background: root.ground
+                    accent: root.accent
+                    fontFamily: root.uiFont
+                    fontSize: Style.font.caption
+                    focusable: false
+                    anchors.verticalCenter: parent.verticalCenter
+                    onChanged: function (v) { root.metric = v }
+                  }
+                }
+
+                Flow {
+                  id: cardGrid
+                  width: parent.width
+                  spacing: Style.space(12)
+                  readonly property int columns: width >= Style.space(1080) ? 3 : 2
+                  readonly property real cardWidth: Math.floor((width - spacing * (columns - 1)) / columns)
+
+                  Repeater {
+                    model: Model.pluginsSorted(root.win(), store.plugins(), root.metric)
+                    PluginCard {
+                      required property var modelData
+                      width: cardGrid.cardWidth
+                      plugin: modelData.plugin
+                      entry: modelData.entry
+                      metric: root.metric
+                      buckets: store.seriesMatches(root.windowName, root.metric) ? store.seriesFor(modelData.plugin.id) : []
+                      image: modelData.plugin.preview !== "" ? store.imageState(modelData.plugin.preview) : null
+                      ink: root.ink
+                      accent: root.accent
+                      ground: root.ground
+                      fontFamily: root.uiFont
+                      onClicked: root.selectPlugin(modelData.plugin.id)
+                    }
+                  }
+                }
+
+                Text {
+                  textFormat: Text.PlainText; renderType: Text.NativeRendering
+                  width: parent.width
+                  text: {
+                    var d = store.summary()
+                    var count = d && d.collector ? Number(d.collector.snapshotCount || 0) : 0
+                    if (count < 2) return "Trends appear after the second hourly snapshot · " + (count === 1 ? "1 taken" : "none yet")
+                    var s = store.series
+                    if (!s || !store.seriesMatches(root.windowName, root.metric)) return ""
+                    var u = Number(s.unit)
+                    var unitText = u >= 604800 ? "week" : u >= 86400 ? (u / 86400) + "-day" : (u / 3600) + "-hour"
+                    return root.metric + " per " + unitText.replace(/^1-/, "") + " bucket over " + Model.windowLabel(root.windowName) + " · dashed = estimated across a collection gap · click a card for detail"
+                  }
+                  color: root.dim
+                  font.family: root.uiFont; font.pixelSize: Style.font.caption
+                  elide: Text.ElideRight
                 }
               }
 
@@ -665,7 +752,7 @@ Item {
               Column {
                 width: parent.width
                 spacing: Style.space(6)
-                visible: store.resolvedState().ok
+                visible: root.selectedId !== "" && store.resolvedState().ok
 
                 Row {
                   width: parent.width

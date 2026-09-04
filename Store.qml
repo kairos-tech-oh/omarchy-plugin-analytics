@@ -65,7 +65,10 @@ Item {
                  category: Sanitise.plainOneLine(p.category, 30), addedAt: Sanitise.plainOneLine(p.addedAt, 20),
                  matchedBy: String(p.matchedBy || ""), totals: p.totals || {}, firstTs: p.firstTs,
                  issues: p.issues && typeof p.issues === "object" ? p.issues : null,
-                 listing: p.listing && typeof p.listing === "object" ? p.listing : ({}) })
+                 listing: p.listing && typeof p.listing === "object" ? p.listing : ({}),
+                 description: Sanitise.plainOneLine(p.description, 240),
+                 preview: /^https:\/\/plugins\.omarchy\.org\/assets\/img\/plugins\/[A-Za-z0-9._-]+\.(webp|png|jpg|jpeg)$/.test(String(p.preview || "")) ? String(p.preview) : "",
+                 accent: String(p.accent || ""), initials: String(p.initials || "").replace(/[^A-Z0-9]/g, "").substring(0, 3) })
     }
     return out
   }
@@ -221,13 +224,13 @@ Item {
   }
 
   // -------------------------------------------------------------- images
-  // One download at a time, for the plugin whose README is showing. Results are
-  // keyed by the URL as written in the README; the helper normalises it.
+  // One download at a time through the helper. Results are keyed by the URL as
+  // written; README images and marketplace card previews share the cache.
   property var images: ({})
   property int imageRevision: 0
   property var imageQueue: []
-  property string imagePlugin: ""
   readonly property int imageCapBytes: 8192
+  readonly property int imageCacheMax: 240
 
   function imageState(url) {
     var r = root.imageRevision
@@ -237,30 +240,37 @@ Item {
   function requestImages(pluginId, urls) {
     var clean = Sanitise.pluginId(pluginId)
     if (clean === "") return
-    if (clean !== root.imagePlugin) { root.images = ({}); root.imagePlugin = clean; root.imageRevision++ }
     var queue = []
     for (var i = 0; i < urls.length && queue.length < 24; i++) {
       var u = String(urls[i] || "")
       if (u === "" || root.images[u]) continue
-      var next = ({})
-      for (var k in root.images) next[k] = root.images[k]
-      next[u] = { state: "queued" }
-      root.images = next
-      queue.push(u)
+      queue.push({ url: u, plugin: clean })
     }
+    if (queue.length === 0) return
+    var next = ({})
+    var count = 0
+    for (var k in root.images) { next[k] = root.images[k]; count++ }
+    if (count > root.imageCacheMax) next = ({})
+    for (var j = 0; j < queue.length; j++) next[queue[j].url] = { state: "queued" }
+    root.images = next
     root.imageQueue = root.imageQueue.concat(queue)
     root.imageRevision++
     root.pumpImages()
   }
 
+  function requestPreview(pluginId, url) {
+    if (String(url || "") === "") return
+    root.requestImages(pluginId, [url])
+  }
+
   function pumpImages() {
     if (imageProc.running || root.imageQueue.length === 0 || root.helperPath === "") return
-    var url = root.imageQueue[0]
+    var item = root.imageQueue[0]
     root.imageQueue = root.imageQueue.slice(1)
-    root.setImage(url, { state: "loading" })
-    imageProc.url = url
+    root.setImage(item.url, { state: "loading" })
+    imageProc.url = item.url
     imageProc.command = ["timeout", "-k", "2", "60", root.helperPath, "--budget", "45",
-                         "image", "--plugin", root.imagePlugin, "--url", url]
+                         "image", "--plugin", item.plugin, "--url", item.url]
     imageProc.running = true
   }
 
