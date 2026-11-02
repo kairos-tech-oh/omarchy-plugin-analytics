@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "kairos.plugin-analytics",
   "name": "Plugin Analytics",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "kairos",
   "license": "MIT",
   "description": "Developer analytics for your Omarchy marketplace plugins: hourly tracking of views, copies, hearts, stars and rank, per-plugin breakdowns over 24h to all-time windows, and a tiled app window with repository links and README viewer.",

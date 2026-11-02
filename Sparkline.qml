@@ -1,12 +1,13 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 
 // Miniature series for a table row: line only, dashed where interpolated.
 Item {
   id: root
   property var buckets: []
-  property color color: Color.accent
-  property color surface: Color.popups.background
+  property color color: Commons.Color.accent
+  property color surface: Commons.Color.popups.background
   property bool fill: false
   property real lineWidth: 1.5
 

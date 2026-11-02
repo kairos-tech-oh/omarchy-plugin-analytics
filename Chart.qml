@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 
 // Per-bucket delta chart. One primary series (accent, filled) and an optional
 // focus series drawn on top; low-coverage buckets are dashed and unfilled.
@@ -11,9 +12,9 @@ Item {
   property string primaryLabel: "All plugins"
   property string focusLabel: ""
   property int unit: 3600
-  property color ink: Color.popups.text
-  property color accent: Color.accent
-  property color surface: Color.popups.background
+  property color ink: Commons.Color.popups.text
+  property color accent: Commons.Color.accent
+  property color surface: Commons.Color.popups.background
   property string fontFamily: Style.font.family
   property string metricLabel: "views"
 

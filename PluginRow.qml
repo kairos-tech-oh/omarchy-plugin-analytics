@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import "Model.js" as Model
 
 // One plugin in the breakdown: name and delta lead, sparkline and context follow.
@@ -11,9 +12,9 @@ Rectangle {
   property string metric: "views"
   property var buckets: []
   property bool focused: false
-  property color ink: Color.popups.text
-  property color accent: Color.accent
-  property color surface: Color.popups.background
+  property color ink: Commons.Color.popups.text
+  property color accent: Commons.Color.accent
+  property color surface: Commons.Color.popups.background
   property string fontFamily: Style.font.family
 
   signal clicked()
@@ -166,7 +167,7 @@ Rectangle {
         width: Math.max(0, Math.min(1, root.share / 100)) * parent.width
         height: parent.height; radius: height / 2
         color: root.focused ? root.accent : root.ink_(0.45)
-        Behavior on width { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+        Behavior on width { NumberAnimation { duration: Style.duration(240); easing.type: Easing.OutCubic } }
       }
     }
   }

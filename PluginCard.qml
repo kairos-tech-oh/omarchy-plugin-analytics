@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import "Model.js" as Model
 
 // A marketplace-style card: the listing preview, dimmed, with the trend drawn
@@ -12,9 +13,9 @@ Rectangle {
   property string metric: "views"
   property var buckets: []
   property var image: null            // Store.imageState(preview)
-  property color ink: Color.menu.text
-  property color accent: Color.accent
-  property color ground: Color.menu.background
+  property color ink: Commons.Color.menu.text
+  property color accent: Commons.Color.accent
+  property color ground: Commons.Color.menu.background
   property string fontFamily: Style.font.menuFamily
 
   signal clicked()
@@ -43,8 +44,8 @@ Rectangle {
   implicitHeight: art.height + body.implicitHeight + Style.space(24)
   clip: true
 
-  Behavior on color { ColorAnimation { duration: 120 } }
-  Behavior on border.color { ColorAnimation { duration: 120 } }
+  Behavior on color { ColorAnimation { duration: Style.duration(120) } }
+  Behavior on border.color { ColorAnimation { duration: Style.duration(120) } }
 
   MouseArea {
     id: hover

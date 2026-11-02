@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 
 // One metric: small label, the window delta as the hero, context underneath.
 Rectangle {
@@ -9,8 +10,8 @@ Rectangle {
   property string value: ""
   property string sub: ""
   property string trend: ""
-  property color ink: Color.popups.text
-  property color accent: Color.accent
+  property color ink: Commons.Color.popups.text
+  property color accent: Commons.Color.accent
   property string fontFamily: Style.font.family
   property bool emphasis: false
 

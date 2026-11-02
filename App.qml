@@ -3,6 +3,7 @@ import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 import "Sanitise.js" as Sanitise
@@ -79,10 +80,10 @@ Item {
   // 0.90 is the alpha Theme Forge measured Omakade's window ground at; the
   // wallpaper reads through, while every data surface is painted on top.
   readonly property real surfaceAlpha: 0.90
-  readonly property color ground: Color.menu.background
+  readonly property color ground: Commons.Color.menu.background
   readonly property color surface: Qt.rgba(ground.r, ground.g, ground.b, surfaceAlpha)
-  readonly property color ink: Color.menu.text
-  readonly property color accent: Color.accent
+  readonly property color ink: Commons.Color.menu.text
+  readonly property color accent: Commons.Color.accent
   readonly property color dim: Qt.rgba(ink.r, ink.g, ink.b, 0.55)
   readonly property color faint: Qt.rgba(ink.r, ink.g, ink.b, 0.28)
   readonly property color hairline: Qt.rgba(ink.r, ink.g, ink.b, 0.12)
@@ -511,7 +512,7 @@ Item {
                 radius: Style.space(6)
                 color: root.ink_(0.045)
                 border.width: 1
-                border.color: store.resolvedState().reason === "no-author-match" ? Qt.rgba(Color.urgent.r, Color.urgent.g, Color.urgent.b, 0.6) : root.hairline
+                border.color: store.resolvedState().reason === "no-author-match" ? Qt.rgba(Commons.Color.urgent.r, Commons.Color.urgent.g, Commons.Color.urgent.b, 0.6) : root.hairline
                 implicitHeight: setupCol.implicitHeight + Style.space(24)
 
                 Column {
@@ -528,7 +529,7 @@ Item {
                       if (store.collecting) return "Collecting the first snapshot…"
                       return "Track your marketplace plugins"
                     }
-                    color: store.resolvedState().reason === "no-author-match" ? Color.urgent : root.ink
+                    color: store.resolvedState().reason === "no-author-match" ? Commons.Color.urgent : root.ink
                     font.family: root.uiFont; font.pixelSize: Style.font.subtitle; font.bold: true
                     wrapMode: Text.WordWrap
                   }
@@ -789,7 +790,7 @@ Item {
                   unit: store.series ? Number(store.series.unit) : 3600
                   ink: root.ink; accent: root.accent; surface: root.ground; fontFamily: root.uiFont
                   opacity: store.seriesLoading && !store.seriesMatches(root.windowName, root.metric) ? 0.5 : 1
-                  Behavior on opacity { NumberAnimation { duration: 160 } }
+                  Behavior on opacity { NumberAnimation { duration: Style.duration(160) } }
                 }
                 Text {
                   textFormat: Text.PlainText; renderType: Text.NativeRendering

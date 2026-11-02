@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 
 // A small attention mark: a yellow triangle for a warning, a red disc for an
 // alert. Drawn, not glyphs, so it renders the same in every bar font.
@@ -62,16 +63,16 @@ Item {
     width: tipText.implicitWidth + Style.space(12)
     height: tipText.implicitHeight + Style.space(8)
     radius: Style.space(4)
-    color: Color.tooltip.background
+    color: Commons.Color.tooltip.background
     border.width: 1
-    border.color: Color.tooltip.border
+    border.color: Commons.Color.tooltip.border
     Text {
       id: tipText
       anchors.centerIn: parent
       textFormat: Text.PlainText
       renderType: Text.NativeRendering
       text: root.tooltip
-      color: Color.tooltip.text
+      color: Commons.Color.tooltip.text
       font.family: Style.font.family
       font.pixelSize: Style.font.caption
     }

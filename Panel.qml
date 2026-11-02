@@ -3,6 +3,7 @@ import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 import "Sanitise.js" as Sanitise
@@ -84,9 +85,9 @@ Panel {
 
   onDefaultWindowChanged: if (!windowPicked) windowName = defaultWindow
 
-  readonly property color ink: Color.popups.text
-  readonly property color surface: Color.popups.background
-  readonly property color accent: Color.accent
+  readonly property color ink: Commons.Color.popups.text
+  readonly property color surface: Commons.Color.popups.background
+  readonly property color accent: Commons.Color.accent
   readonly property string fontFamily: Style.font.family
 
   function ink_(a) { return Qt.rgba(ink.r, ink.g, ink.b, a) }
@@ -522,7 +523,7 @@ Panel {
             radius: Style.space(6)
             color: root.ink_(0.045)
             border.width: 1
-            border.color: root.resolvedState().reason === "no-author-match" ? Qt.rgba(Color.urgent.r, Color.urgent.g, Color.urgent.b, 0.6) : root.ink_(0.12)
+            border.color: root.resolvedState().reason === "no-author-match" ? Qt.rgba(Commons.Color.urgent.r, Commons.Color.urgent.g, Commons.Color.urgent.b, 0.6) : root.ink_(0.12)
             implicitHeight: setupCol.implicitHeight + Style.space(24)
 
             Column {
@@ -544,7 +545,7 @@ Panel {
                   if (root.collecting) return "Collecting the first snapshot…"
                   return "Waiting for the first snapshot"
                 }
-                color: root.resolvedState().reason === "no-author-match" ? Color.urgent : root.ink
+                color: root.resolvedState().reason === "no-author-match" ? Commons.Color.urgent : root.ink
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.subtitle
                 font.bold: true
@@ -704,7 +705,7 @@ Panel {
               surface: root.surface
               fontFamily: root.fontFamily
               opacity: root.seriesLoading && !root.seriesMatches() ? 0.5 : 1
-              Behavior on opacity { NumberAnimation { duration: 160 } }
+              Behavior on opacity { NumberAnimation { duration: Style.duration(160) } }
             }
 
             Text {
