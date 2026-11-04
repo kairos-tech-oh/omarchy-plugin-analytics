@@ -44,8 +44,8 @@ Rectangle {
   implicitHeight: art.height + body.implicitHeight + Style.space(24)
   clip: true
 
-  Behavior on color { ColorAnimation { duration: Style.duration(120) } }
-  Behavior on border.color { ColorAnimation { duration: Style.duration(120) } }
+  Behavior on color { ColorAnimation { duration: (Style.duration ? Style.duration(120) : 120) } }
+  Behavior on border.color { ColorAnimation { duration: (Style.duration ? Style.duration(120) : 120) } }
 
   MouseArea {
     id: hover

@@ -705,7 +705,7 @@ Panel {
               surface: root.surface
               fontFamily: root.fontFamily
               opacity: root.seriesLoading && !root.seriesMatches() ? 0.5 : 1
-              Behavior on opacity { NumberAnimation { duration: Style.duration(160) } }
+              Behavior on opacity { NumberAnimation { duration: (Style.duration ? Style.duration(160) : 160) } }
             }
 
             Text {

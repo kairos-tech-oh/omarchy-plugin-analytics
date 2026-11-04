@@ -790,7 +790,7 @@ Item {
                   unit: store.series ? Number(store.series.unit) : 3600
                   ink: root.ink; accent: root.accent; surface: root.ground; fontFamily: root.uiFont
                   opacity: store.seriesLoading && !store.seriesMatches(root.windowName, root.metric) ? 0.5 : 1
-                  Behavior on opacity { NumberAnimation { duration: Style.duration(160) } }
+                  Behavior on opacity { NumberAnimation { duration: (Style.duration ? Style.duration(160) : 160) } }
                 }
                 Text {
                   textFormat: Text.PlainText; renderType: Text.NativeRendering

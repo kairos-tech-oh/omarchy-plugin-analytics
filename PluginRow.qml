@@ -167,7 +167,7 @@ Rectangle {
         width: Math.max(0, Math.min(1, root.share / 100)) * parent.width
         height: parent.height; radius: height / 2
         color: root.focused ? root.accent : root.ink_(0.45)
-        Behavior on width { NumberAnimation { duration: Style.duration(240); easing.type: Easing.OutCubic } }
+        Behavior on width { NumberAnimation { duration: (Style.duration ? Style.duration(240) : 240); easing.type: Easing.OutCubic } }
       }
     }
   }
